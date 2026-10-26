@@ -29,13 +29,20 @@ $page_css = ['shop.css', 'blog.css'];
 $body_class = 'shop-page';
 include __DIR__ . '/../header.php';
 
-$others = [];
+$postCategory = blog_post_category($post);
+$sameCategory = [];
+$remainingPosts = [];
 foreach (blog_posts() as $item) {
-    if ($item['slug'] !== $post['slug']) {
-        $others[] = $item;
+    if ($item['slug'] === $post['slug']) {
+        continue;
+    }
+    if (($item['category'] ?? '') === $postCategory['slug']) {
+        $sameCategory[] = $item;
+    } else {
+        $remainingPosts[] = $item;
     }
 }
-$others = array_slice($others, 0, 3);
+$others = array_slice(array_merge($sameCategory, $remainingPosts), 0, 3);
 ?>
 
 <section class="shop-section blog-page">
@@ -44,13 +51,19 @@ $others = array_slice($others, 0, 3);
         <span class="sep">/</span>
         <a href="index.php">Blog</a>
         <span class="sep">/</span>
+        <a href="index.php?kategori=<?php echo urlencode($postCategory['slug']); ?>"><?php echo e($postCategory['name']); ?></a>
+        <span class="sep">/</span>
         <span class="muted"><?php echo e($post['title']); ?></span>
     </nav>
 
     <article class="post">
         <header class="post-head">
             <p class="blog-meta">
-                <span class="post-tag"><?php echo e($post['tag'] !== '' ? $post['tag'] : 'Blog'); ?></span>
+                <a class="post-tag" href="index.php?kategori=<?php echo urlencode($postCategory['slug']); ?>"><?php echo e($postCategory['name']); ?></a>
+                <?php if ($post['tag'] !== '' && blog_category_slugify((string)$post['tag']) !== $postCategory['slug'] && shop_fold((string)$post['tag']) !== shop_fold((string)$postCategory['name'])): ?>
+                    <span class="dot-sep" aria-hidden="true">·</span>
+                    <span><?php echo e($post['tag']); ?></span>
+                <?php endif; ?>
                 <span class="dot-sep" aria-hidden="true">·</span>
                 <span><?php echo e(date('d.m.Y', strtotime($post['date']))); ?></span>
             </p>
@@ -72,6 +85,7 @@ $others = array_slice($others, 0, 3);
         </div>
 
         <footer class="post-foot">
+            <a class="btn btn-ghost" href="index.php?kategori=<?php echo urlencode($postCategory['slug']); ?>"><?php echo e($postCategory['name']); ?> yazıları</a>
             <a class="btn btn-ghost" href="index.php">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
                 Tüm yazılar
@@ -88,21 +102,25 @@ $others = array_slice($others, 0, 3);
             <div class="shop-section-head" style="margin-bottom:1.75rem;">
                 <div>
                     <p class="eyebrow">Devamı</p>
-                    <h2 id="blog-more-title">Diğer yazılar.</h2>
+                    <h2 id="blog-more-title"><?php echo $sameCategory ? e($postCategory['name']) . ' kategorisinden.' : 'Diğer yazılar.'; ?></h2>
                 </div>
-                <a class="text-link" href="index.php">Tümünü gör</a>
+                <a class="text-link" href="<?php echo $sameCategory ? 'index.php?kategori=' . urlencode($postCategory['slug']) : 'index.php'; ?>">Tümünü gör</a>
             </div>
             <div class="blog-grid">
                 <?php foreach ($others as $item): ?>
                     <a class="blog-card" href="yazi.php?slug=<?php echo urlencode($item['slug']); ?>">
                         <div class="blog-cover" style="--c1:<?php echo e($item['c1']); ?>;--c2:<?php echo e($item['c2']); ?>">
                             <?php if ($item['image'] !== ''): ?>
-                                <img class="blog-cover-img" src="<?php echo e($item['image']); ?>" alt="" loading="lazy" decoding="async">
+                                <img class="blog-cover-img" src="<?php echo e(blog_image_url($item['image'])); ?>" alt="" loading="lazy" decoding="async">
                             <?php endif; ?>
-                            <span class="blog-cover-tag"><?php echo e($item['tag'] !== '' ? $item['tag'] : 'Yazı'); ?></span>
+                            <span class="blog-cover-tag"><?php echo e($item['category_name'] ?? 'Genel'); ?></span>
                         </div>
                         <div class="blog-card-body">
-                            <p class="blog-meta"><span><?php echo e(date('d.m.Y', strtotime($item['date']))); ?></span></p>
+                            <p class="blog-meta">
+                                <span><?php echo e(date('d.m.Y', strtotime($item['date']))); ?></span>
+                                <span class="dot-sep" aria-hidden="true">·</span>
+                                <span><?php echo e($item['category_name'] ?? 'Genel'); ?></span>
+                            </p>
                             <h3><?php echo e($item['title']); ?></h3>
                             <p class="muted"><?php echo e($item['excerpt']); ?></p>
                             <span class="text-link">Devamını oku</span>

@@ -60,7 +60,7 @@ let storageSeeded = false;
 function seedStorage() {
     if (storageSeeded) return;
     php.mkdirTree(path.posix.join(DOC_ROOT, 'storage'));
-    for (const name of ['products.json', 'slides.json', 'blog.json', '.htaccess', 'index.html']) {
+    for (const name of ['products.json', 'slides.json', 'blog.json', 'blog-categories.json', '.htaccess', 'index.html']) {
         const source = path.join(ROOT, 'storage', name);
         if (!fs.existsSync(source)) continue;
         php.writeFile(

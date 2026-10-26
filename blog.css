@@ -10,6 +10,8 @@
     margin: 1rem 0 1.15rem; text-wrap: balance;
 }
 .blog-head .muted { font-size: 1.05rem; }
+.blog-categories { margin-top: 1.5rem; }
+.blog-categories .chip { text-decoration: none; }
 
 /* ---------- Kapaklar ---------- */
 .blog-cover {
@@ -98,6 +100,8 @@
 }
 .blog-meta .dot-sep { opacity: 0.6; }
 .post-tag { color: var(--signal); }
+a.post-tag { text-decoration: none; }
+a.post-tag:hover, a.post-tag:focus-visible { text-decoration: underline; text-underline-offset: 0.25em; }
 
 /* ---------- Yazı sayfası ---------- */
 .blog-breadcrumb { margin-bottom: 2.25rem; }

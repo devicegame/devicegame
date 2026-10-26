@@ -8,14 +8,19 @@ function dg_blog_filter_params(array $source, bool $fromPost = false): array
 {
     $qKey = $fromPost ? 'return_q' : 'q';
     $statusKey = $fromPost ? 'return_status' : 'status';
+    $categoryKey = $fromPost ? 'return_category' : 'kategori';
     $params = [];
     $q = trim((string)($source[$qKey] ?? ''));
     $status = (string)($source[$statusKey] ?? 'all');
+    $category = blog_category_slugify((string)($source[$categoryKey] ?? ''));
     if ($q !== '') {
         $params['q'] = $q;
     }
     if (in_array($status, ['published', 'draft'], true)) {
         $params['status'] = $status;
+    }
+    if ($category !== '') {
+        $params['kategori'] = $category;
     }
     return $params;
 }
@@ -55,6 +60,9 @@ function dg_blog_safe_color(string $color, string $fallback): string
 $formErrors = [];
 $formValues = null;
 $editingPost = null;
+$categoryFormErrors = [];
+$categoryFormValues = null;
+$editingCategory = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $returnParams = dg_blog_filter_params($_POST, true);
@@ -62,6 +70,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_verify($_POST['csrf'] ?? '')) {
         flash_error_set('CSRF hatası. Sayfayı yenileyip tekrar deneyin.');
         header('Location: ' . dg_blog_admin_url($returnParams));
+        exit;
+    }
+
+    if (isset($_POST['save_category'])) {
+        $editCategorySlug = blog_category_slugify((string)($_POST['edit_category_slug'] ?? ''));
+        $categoryFormValues = $_POST;
+
+        try {
+            $result = $editCategorySlug !== ''
+                ? admin_edit_blog_category($editCategorySlug, $_POST)
+                : admin_add_blog_category($_POST);
+        } catch (Throwable $exception) {
+            error_log('[admin blog category save] ' . $exception->getMessage());
+            $result = [
+                'errors' => ['Kategori kaydedilemedi. storage/blog-categories.json yazma izinlerini kontrol edin.'],
+                'slug' => $editCategorySlug,
+            ];
+        }
+
+        if (!empty($result['errors'])) {
+            $categoryFormErrors = $result['errors'];
+            if ($editCategorySlug !== '') {
+                $editingCategory = ['slug' => $editCategorySlug];
+            }
+        } else {
+            flash_set($editCategorySlug !== '' ? 'Blog kategorisi güncellendi.' : 'Blog kategorisi eklendi.');
+            header('Location: ' . dg_blog_admin_url($returnParams) . '#blog-categories');
+            exit;
+        }
+    }
+
+    if (isset($_POST['delete_category'])) {
+        $categorySlug = blog_category_slugify((string)($_POST['category_slug'] ?? ''));
+        try {
+            $result = admin_delete_blog_category($categorySlug);
+        } catch (Throwable $exception) {
+            error_log('[admin blog category delete] ' . $exception->getMessage());
+            $result = ['errors' => ['Kategori silinemedi. Depolama izinlerini kontrol edin.'], 'moved' => 0];
+        }
+
+        if (!empty($result['errors'])) {
+            flash_error_set(implode(' ', $result['errors']));
+        } else {
+            if (($returnParams['kategori'] ?? '') === $categorySlug) {
+                unset($returnParams['kategori']);
+            }
+            flash_set($result['moved'] > 0
+                ? 'Kategori silindi; ' . (int)$result['moved'] . ' yazı Genel kategorisine taşındı.'
+                : 'Blog kategorisi silindi.');
+        }
+        header('Location: ' . dg_blog_admin_url($returnParams) . '#blog-categories');
         exit;
     }
 
@@ -141,8 +200,24 @@ $filterParams = $_SERVER['REQUEST_METHOD'] === 'POST'
     : dg_blog_filter_params($_GET);
 $q = (string)($filterParams['q'] ?? '');
 $status = (string)($filterParams['status'] ?? 'all');
+$categoryFilter = (string)($filterParams['kategori'] ?? '');
 
 $posts = blog_posts(false);
+$categorySummaries = blog_category_summaries(false);
+$categorySummariesBySlug = [];
+foreach ($categorySummaries as $category) {
+    $categorySummariesBySlug[(string)$category['slug']] = $category;
+}
+
+if ($categoryFormValues === null && isset($_GET['category_edit'])) {
+    $categoryEditSlug = blog_category_slugify((string)$_GET['category_edit']);
+    $editingCategory = $categorySummariesBySlug[$categoryEditSlug] ?? null;
+    if (!$editingCategory) {
+        flash_error_set('Düzenlenecek blog kategorisi bulunamadı.');
+        header('Location: ' . dg_blog_admin_url($filterParams) . '#blog-categories');
+        exit;
+    }
+}
 
 if ($formValues === null && isset($_GET['edit'])) {
     $editingPost = blog_post(trim((string)$_GET['edit']), false);
@@ -156,7 +231,8 @@ if ($formValues === null && isset($_GET['edit'])) {
 $form = [
     'slug' => '',
     'title' => '',
-    'tag' => 'Blog',
+    'category' => isset($categorySummariesBySlug[$categoryFilter]) ? $categoryFilter : 'genel',
+    'tag' => '',
     'date' => date('Y-m-d'),
     'excerpt' => '',
     'content' => '',
@@ -167,7 +243,7 @@ $form = [
 ];
 
 if (is_array($formValues)) {
-    foreach (['slug', 'title', 'tag', 'date', 'excerpt', 'content', 'image', 'c1', 'c2'] as $field) {
+    foreach (['slug', 'title', 'category', 'tag', 'date', 'excerpt', 'content', 'image', 'c1', 'c2'] as $field) {
         $form[$field] = (string)($formValues[$field] ?? $form[$field]);
     }
     $form['published'] = !empty($formValues['published']);
@@ -182,7 +258,40 @@ $form['c1'] = dg_blog_safe_color((string)$form['c1'], '#0F3B2C');
 $form['c2'] = dg_blog_safe_color((string)$form['c2'], '#2FA377');
 $isEditing = $editingPost !== null;
 
-$filteredPosts = array_values(array_filter($posts, static function (array $post) use ($q, $status): bool {
+$postCategoryOptions = $categorySummaries;
+$formCategorySlug = blog_category_slugify((string)($form['category'] ?? ''));
+if ($formCategorySlug !== '' && !isset($categorySummariesBySlug[$formCategorySlug])) {
+    $postCategoryOptions[] = blog_post_category(['category' => $formCategorySlug, 'tag' => (string)($form['tag'] ?? '')]) + [
+        'count' => 0,
+        'published_count' => 0,
+        'draft_count' => 0,
+    ];
+}
+
+$categoryForm = [
+    'slug' => '',
+    'name' => '',
+    'description' => '',
+];
+if (is_array($categoryFormValues)) {
+    $categoryForm = [
+        'slug' => (string)($editingCategory['slug'] ?? ($categoryFormValues['category_slug'] ?? '')),
+        'name' => (string)($categoryFormValues['category_name'] ?? ''),
+        'description' => (string)($categoryFormValues['category_description'] ?? ''),
+    ];
+} elseif ($editingCategory) {
+    $categoryForm = [
+        'slug' => (string)$editingCategory['slug'],
+        'name' => (string)($editingCategory['name'] ?? ''),
+        'description' => (string)($editingCategory['description'] ?? ''),
+    ];
+}
+$isEditingCategory = $editingCategory !== null;
+
+$filteredPosts = array_values(array_filter($posts, static function (array $post) use ($q, $status, $categoryFilter): bool {
+    if ($categoryFilter !== '' && ($post['category'] ?? '') !== $categoryFilter) {
+        return false;
+    }
     if ($status === 'published' && empty($post['published'])) {
         return false;
     }
@@ -194,6 +303,8 @@ $filteredPosts = array_values(array_filter($posts, static function (array $post)
     }
     $haystack = dg_casefold(implode(' ', [
         (string)$post['title'],
+        (string)($post['category_name'] ?? ''),
+        (string)($post['category'] ?? ''),
         (string)$post['tag'],
         (string)$post['slug'],
         (string)$post['excerpt'],
@@ -214,10 +325,12 @@ admin_head('Blog Yönetimi');
   <div>
     <p class="dg-kicker">BLOG // CONTENT MANAGEMENT</p>
     <h1 style="font-family:Bricolage Grotesque,sans-serif;font-weight:800;font-size:24px">Blog Yönetimi</h1>
-    <p class="dg-muted" style="font-size:13px">Yazı ekle, düzenle, taslak olarak sakla veya yayınla. Kayıtlar eski panelle ortak <code>storage/blog.json</code> dosyasında tutulur.</p>
+    <p class="dg-muted" style="font-size:13px">Yazı ve kategori ekle, düzenle, taslak olarak sakla veya yayınla. Yazılar eski panelle ortak <code>storage/blog.json</code>, kategoriler <code>storage/blog-categories.json</code> dosyasında tutulur.</p>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
     <span class="dg-badge"><?=count($posts)?> YAZI</span>
+    <span class="dg-badge"><?=count($categorySummaries)?> KATEGORİ</span>
+    <a href="#blog-categories" class="dg-btn dg-btn-ghost dg-btn-sm">Kategorileri Yönet</a>
     <a href="../blog/index.php" target="_blank" rel="noopener" class="dg-btn dg-btn-ghost dg-btn-sm">Blogu Görüntüle ↗</a>
     <?php if ($isEditing): ?><a href="<?=e($cancelUrl)?>#blog-editor" class="dg-btn dg-btn-primary dg-btn-sm">＋ Yeni Yazı</a><?php endif; ?>
   </div>
@@ -251,6 +364,7 @@ admin_head('Blog Yönetimi');
         <input type="hidden" name="edit_slug" value="<?=e($editingPost['slug'] ?? '')?>">
         <input type="hidden" name="return_q" value="<?=e($q)?>">
         <input type="hidden" name="return_status" value="<?=e($status)?>">
+        <input type="hidden" name="return_category" value="<?=e($categoryFilter)?>">
 
         <label class="dg-field">
           <span>Başlık *</span>
@@ -265,14 +379,22 @@ admin_head('Blog Yönetimi');
 
         <div class="dg-blog-form-grid">
           <label class="dg-field">
-            <span>Etiket</span>
-            <input type="text" name="tag" maxlength="60" placeholder="Duyuru, Rehber, Stüdyo…" value="<?=e($form['tag'])?>">
+            <span>Kategori *</span>
+            <select name="category" required>
+              <?php foreach ($postCategoryOptions as $categoryOption): ?>
+                <option value="<?=e($categoryOption['slug'])?>" <?= blog_category_slugify((string)$form['category']) === (string)$categoryOption['slug'] ? 'selected' : '' ?>><?=e($categoryOption['name'])?> (<?=(int)($categoryOption['count'] ?? 0)?>)<?= empty($categoryOption['is_registered']) ? ' — mevcut yazılardan' : '' ?></option>
+              <?php endforeach; ?>
+            </select>
           </label>
           <label class="dg-field">
             <span>Tarih</span>
             <input type="date" name="date" value="<?=e($form['date'])?>">
           </label>
         </div>
+        <label class="dg-field">
+          <span>Etiket <small style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--dim)">— isteğe bağlı kısa rozet</small></span>
+          <input type="text" name="tag" maxlength="60" placeholder="Örn. Güncelleme, Video, Röportaj…" value="<?=e($form['tag'])?>">
+        </label>
 
         <label class="dg-field">
           <span>Özet</span>
@@ -344,14 +466,21 @@ admin_head('Blog Yönetimi');
 
     <form method="get" class="dg-blog-filter">
       <?php if ($isEditing): ?><input type="hidden" name="edit" value="<?=e($editingPost['slug'])?>"><?php endif; ?>
-      <div class="dg-search"><input type="search" name="q" value="<?=e($q)?>" placeholder="Başlık, etiket veya içerik ara..."></div>
+      <?php if ($isEditingCategory): ?><input type="hidden" name="category_edit" value="<?=e($editingCategory['slug'])?>"><?php endif; ?>
+      <div class="dg-search"><input type="search" name="q" value="<?=e($q)?>" placeholder="Başlık, kategori, etiket veya içerik ara..."></div>
+      <select name="kategori" aria-label="Blog kategorisi">
+        <option value="">Tüm kategoriler</option>
+        <?php foreach ($categorySummaries as $category): ?>
+          <option value="<?=e($category['slug'])?>" <?= $categoryFilter === (string)$category['slug'] ? 'selected' : '' ?>><?=e($category['name'])?> (<?=(int)$category['count']?>)</option>
+        <?php endforeach; ?>
+      </select>
       <select name="status" aria-label="Yayın durumu">
         <option value="all" <?= $status === 'all' ? 'selected' : '' ?>>Tümü</option>
         <option value="published" <?= $status === 'published' ? 'selected' : '' ?>>Yayında</option>
         <option value="draft" <?= $status === 'draft' ? 'selected' : '' ?>>Taslak</option>
       </select>
       <button class="dg-btn dg-btn-ghost dg-btn-sm">Filtrele</button>
-      <?php if ($q !== '' || $status !== 'all'): ?><a href="<?=e(dg_blog_admin_url($isEditing ? ['edit' => $editingPost['slug']] : []))?>" class="dg-btn dg-btn-ghost dg-btn-sm">Temizle</a><?php endif; ?>
+      <?php if ($q !== '' || $status !== 'all' || $categoryFilter !== ''): ?><a href="<?=e(dg_blog_admin_url(array_filter([$isEditing ? 'edit' : '' => $isEditing ? $editingPost['slug'] : '', $isEditingCategory ? 'category_edit' : '' => $isEditingCategory ? $editingCategory['slug'] : ''])))?>" class="dg-btn dg-btn-ghost dg-btn-sm">Temizle</a><?php endif; ?>
     </form>
 
     <?php if (!$filteredPosts): ?>
@@ -385,7 +514,8 @@ admin_head('Blog Yönetimi');
               <p><?=e(dg_blog_summary($post))?></p>
               <div class="dg-blog-meta">
                 <span class="dg-chip <?= !empty($post['published']) ? 'on' : '' ?>"><?= !empty($post['published']) ? '● Yayında' : '○ Taslak' ?></span>
-                <?php if (trim((string)$post['tag']) !== ''): ?><span class="dg-chip"><?=e($post['tag'])?></span><?php endif; ?>
+                <span class="dg-chip">📂 <?=e($post['category_name'] ?? 'Genel')?></span>
+                <?php if (trim((string)$post['tag']) !== '' && blog_category_slugify((string)$post['tag']) !== (string)($post['category'] ?? '') && shop_fold((string)$post['tag']) !== shop_fold((string)($post['category_name'] ?? ''))): ?><span class="dg-chip"><?=e($post['tag'])?></span><?php endif; ?>
                 <span class="dg-chip"><?=$dateText?></span>
                 <code>/<?=e($post['slug'])?></code>
                 <?php if ($isCurrent): ?><span class="dg-chip on">Düzenleniyor</span><?php endif; ?>
@@ -402,6 +532,7 @@ admin_head('Blog Yönetimi');
                 <input type="hidden" name="slug" value="<?=e($post['slug'])?>">
                 <input type="hidden" name="return_q" value="<?=e($q)?>">
                 <input type="hidden" name="return_status" value="<?=e($status)?>">
+                <input type="hidden" name="return_category" value="<?=e($categoryFilter)?>">
                 <button name="toggle_post" value="1" class="dg-btn <?= !empty($post['published']) ? 'dg-btn-ghost' : 'dg-btn-primary' ?> dg-btn-sm"><?= !empty($post['published']) ? 'Gizle' : 'Yayınla' ?></button>
               </form>
               <form method="post" onsubmit="return confirm('Bu blog yazısı kalıcı olarak silinsin mi?')">
@@ -409,6 +540,7 @@ admin_head('Blog Yönetimi');
                 <input type="hidden" name="slug" value="<?=e($post['slug'])?>">
                 <input type="hidden" name="return_q" value="<?=e($q)?>">
                 <input type="hidden" name="return_status" value="<?=e($status)?>">
+                <input type="hidden" name="return_category" value="<?=e($categoryFilter)?>">
                 <button name="delete_post" value="1" class="dg-btn dg-btn-ghost dg-btn-sm dg-blog-delete">Sil</button>
               </form>
             </div>
@@ -418,6 +550,104 @@ admin_head('Blog Yönetimi');
     <?php endif; ?>
   </section>
 </div>
+
+<section class="dg-card" id="blog-categories" style="margin-top:16px">
+  <div class="dg-card-head">
+    <h2>📂 Blog Kategorileri</h2>
+    <span class="dg-badge"><?=count($categorySummaries)?> KATEGORİ</span>
+  </div>
+  <div class="dg-blog-category-layout">
+    <div class="dg-card-body">
+      <h3 style="margin-bottom:6px;font-size:16px"><?= $isEditingCategory ? 'Kategoriyi Düzenle' : 'Yeni Kategori Ekle' ?></h3>
+      <p class="dg-muted" style="font-size:12.5px;margin-bottom:14px">Kategoriler blog listesinde filtre olarak görünür. Düzenleme sırasında kategori adresi (slug), mevcut bağlantılar bozulmasın diye korunur.</p>
+
+      <?php if ($categoryFormErrors): ?>
+        <div class="dg-alert dg-alert-error" style="margin-bottom:14px">
+          <b>Kategori kaydedilemedi:</b>
+          <ul style="margin:6px 0 0 18px;padding:0">
+            <?php foreach ($categoryFormErrors as $error): ?><li><?=e($error)?></li><?php endforeach; ?>
+          </ul>
+        </div>
+      <?php endif; ?>
+
+      <form method="post" action="#blog-categories" class="dg-form">
+        <?=csrf_field()?>
+        <input type="hidden" name="edit_category_slug" value="<?= $isEditingCategory ? e($categoryForm['slug']) : '' ?>">
+        <input type="hidden" name="return_q" value="<?=e($q)?>">
+        <input type="hidden" name="return_status" value="<?=e($status)?>">
+        <input type="hidden" name="return_category" value="<?=e($categoryFilter)?>">
+
+        <label class="dg-field">
+          <span>Kategori Adı *</span>
+          <input type="text" name="category_name" required maxlength="60" placeholder="Örn. Etkinlik, İnceleme, Röportaj…" value="<?=e($categoryForm['name'])?>">
+        </label>
+
+        <label class="dg-field">
+          <span>Kategori Adresi (Slug) <?php if (!$isEditingCategory): ?><small style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--dim)">— boş bırakırsan addan üretilir</small><?php endif; ?></span>
+          <input type="text" name="category_slug" maxlength="80" placeholder="ornek-kategori" value="<?=e($categoryForm['slug'])?>" <?= $isEditingCategory ? 'readonly' : '' ?>>
+        </label>
+
+        <label class="dg-field">
+          <span>Açıklama</span>
+          <textarea name="category_description" maxlength="240" placeholder="Bu kategoride hangi yazılar yer alacak?"><?=e($categoryForm['description'])?></textarea>
+        </label>
+
+        <?php if ($isEditingCategory && empty($categorySummariesBySlug[$categoryForm['slug']]['is_registered'])): ?>
+          <p class="dg-mini">Bu kategori eski yazılardaki etiketten geliyor; kaydedersen resmi kategori listesine eklenecek.</p>
+        <?php endif; ?>
+
+        <button name="save_category" value="1" class="dg-btn dg-btn-primary dg-btn-block"><?= $isEditingCategory ? 'Kategoriyi Güncelle' : 'Kategori Ekle' ?> →</button>
+        <?php if ($isEditingCategory): ?>
+          <a class="dg-btn dg-btn-ghost dg-btn-block" href="<?=e(dg_blog_admin_url(array_merge($filterParams, $isEditing ? ['edit' => $editingPost['slug']] : [])))?>#blog-categories">Düzenlemeyi İptal Et</a>
+        <?php endif; ?>
+      </form>
+    </div>
+
+    <div class="dg-blog-category-list">
+      <?php foreach ($categorySummaries as $category): ?>
+        <?php
+          $isCurrentCategory = $isEditingCategory && (string)$editingCategory['slug'] === (string)$category['slug'];
+          $categoryEditParams = array_merge($filterParams, $isEditing ? ['edit' => $editingPost['slug']] : [], ['category_edit' => $category['slug']]);
+          $deleteConfirm = (int)$category['count'] > 0
+            ? 'Bu kategori silinsin mi? İçindeki ' . (int)$category['count'] . ' yazı Genel kategorisine taşınacak.'
+            : 'Bu boş kategori silinsin mi?';
+        ?>
+        <article class="dg-blog-category-row<?= $isCurrentCategory ? ' is-editing' : '' ?>">
+          <div class="dg-blog-category-main">
+            <strong><?=e($category['name'])?></strong>
+            <div class="dg-blog-meta">
+              <span class="dg-chip <?= (int)$category['count'] > 0 ? 'on' : '' ?>"><?=(int)$category['count']?> yazı</span>
+              <span class="dg-chip"><?=(int)$category['published_count']?> yayında</span>
+              <?php if ((int)$category['draft_count'] > 0): ?><span class="dg-chip"><?=(int)$category['draft_count']?> taslak</span><?php endif; ?>
+              <?php if (empty($category['is_registered'])): ?><span class="dg-chip">Eski yazılardan geldi</span><?php endif; ?>
+              <code>?kategori=<?=e($category['slug'])?></code>
+              <?php if ($isCurrentCategory): ?><span class="dg-chip on">Düzenleniyor</span><?php endif; ?>
+            </div>
+            <p><?=e(trim((string)$category['description']) !== '' ? $category['description'] : 'Açıklama yok.')?></p>
+          </div>
+          <div class="dg-blog-actions">
+            <?php if ((int)$category['published_count'] > 0): ?>
+              <a class="dg-btn dg-btn-ghost dg-btn-sm" href="../blog/index.php?kategori=<?=rawurlencode((string)$category['slug'])?>" target="_blank" rel="noopener">Blogda Gör</a>
+            <?php endif; ?>
+            <a class="dg-btn dg-btn-ghost dg-btn-sm" href="<?=e(dg_blog_admin_url($categoryEditParams))?>#blog-categories">Düzenle</a>
+            <?php if ((string)$category['slug'] === 'genel'): ?>
+              <button type="button" class="dg-btn dg-btn-ghost dg-btn-sm" disabled title="Genel kategorisi silinemez">Silinemez</button>
+            <?php else: ?>
+              <form method="post" onsubmit="return confirm('<?=e($deleteConfirm)?>')">
+                <?=csrf_field()?>
+                <input type="hidden" name="category_slug" value="<?=e($category['slug'])?>">
+                <input type="hidden" name="return_q" value="<?=e($q)?>">
+                <input type="hidden" name="return_status" value="<?=e($status)?>">
+                <input type="hidden" name="return_category" value="<?=e($categoryFilter)?>">
+                <button name="delete_category" value="1" class="dg-btn dg-btn-ghost dg-btn-sm dg-blog-delete">Sil</button>
+              </form>
+            <?php endif; ?>
+          </div>
+        </article>
+      <?php endforeach; ?>
+    </div>
+  </div>
+</section>
 
 <script>
 (() => {

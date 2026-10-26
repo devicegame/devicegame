@@ -391,6 +391,173 @@ if (!defined('DG_ADMIN')) {
         return shop_write_json(blog_file(), $normalized);
     }
 
+    function admin_save_blog_categories(array $categories): bool
+    {
+        $normalized = [];
+        $seen = [];
+        foreach (array_values($categories) as $i => $category) {
+            if (!is_array($category)) {
+                continue;
+            }
+            $category = blog_normalize_category($category, $i + 1);
+            if (isset($seen[$category['slug']])) {
+                continue;
+            }
+            $seen[$category['slug']] = true;
+            $category['order'] = $i + 1;
+            $normalized[] = $category;
+        }
+        if (!isset($seen['genel'])) {
+            foreach (blog_default_categories() as $default) {
+                if ($default['slug'] === 'genel') {
+                    $normalized[] = blog_normalize_category($default, count($normalized) + 1);
+                    break;
+                }
+            }
+        }
+        return shop_write_json(blog_categories_file(), $normalized);
+    }
+
+    /** Formdan kategori üretir. Düzenlemede mevcut slug korunur. */
+    function admin_blog_category_from_input(array $input, ?array $existing = null): array
+    {
+        $errors = [];
+        $name = trim((string)($input['category_name'] ?? $input['name'] ?? ''));
+        $description = trim((string)($input['category_description'] ?? $input['description'] ?? ''));
+        $slug = $existing !== null
+            ? blog_category_slugify((string)($existing['slug'] ?? ''))
+            : blog_category_slugify(trim((string)($input['category_slug'] ?? $input['slug'] ?? '')) ?: $name);
+
+        if (mb_strlen($name, 'UTF-8') < 2) {
+            $errors[] = 'Kategori adı en az 2 karakter olmalı.';
+        }
+        if (mb_strlen($name, 'UTF-8') > 60) {
+            $errors[] = 'Kategori adı en fazla 60 karakter olabilir.';
+        }
+        if ($slug === '') {
+            $errors[] = 'Kategori adresi (slug) oluşturulamadı; geçerli bir kategori adı kullanın.';
+        }
+        if (mb_strlen($description, 'UTF-8') > 240) {
+            $errors[] = 'Kategori açıklaması en fazla 240 karakter olabilir.';
+        }
+        if ($errors) {
+            return ['errors' => $errors, 'category' => null];
+        }
+
+        return [
+            'errors' => [],
+            'category' => blog_normalize_category([
+                'slug' => $slug,
+                'name' => $name,
+                'description' => $description,
+                'order' => (int)($existing['order'] ?? 999),
+            ], 999),
+        ];
+    }
+
+    function admin_add_blog_category(array $input): array
+    {
+        $result = admin_blog_category_from_input($input);
+        if ($result['errors'] || !$result['category']) {
+            return ['errors' => $result['errors'] ?: ['Kategori oluşturulamadı.'], 'slug' => ''];
+        }
+        $category = $result['category'];
+        $categories = blog_categories();
+        foreach ($categories as $existing) {
+            if ($existing['slug'] === $category['slug'] || shop_fold($existing['name']) === shop_fold($category['name'])) {
+                return ['errors' => ['Bu kategori adı veya adresi zaten kullanılıyor.'], 'slug' => ''];
+            }
+        }
+
+        // Eski yazılardan gelen aynı slug burada kayıtlı kategoriye dönüşür.
+        $category['order'] = count($categories) + 1;
+        $categories[] = $category;
+        if (!admin_save_blog_categories($categories)) {
+            return ['errors' => ['Kategori kaydedilemedi (storage/ yazma iznini kontrol edin).'], 'slug' => ''];
+        }
+        return ['errors' => [], 'slug' => $category['slug']];
+    }
+
+    function admin_edit_blog_category(string $slug, array $input): array
+    {
+        $slug = blog_category_slugify($slug);
+        $categories = blog_categories();
+        $index = -1;
+        foreach ($categories as $i => $category) {
+            if ($category['slug'] === $slug) {
+                $index = $i;
+                break;
+            }
+        }
+
+        $existing = $index >= 0 ? $categories[$index] : null;
+        if ($existing === null) {
+            foreach (blog_category_summaries(false) as $summary) {
+                if (($summary['slug'] ?? '') === $slug) {
+                    $existing = blog_normalize_category($summary, 999);
+                    break;
+                }
+            }
+        }
+        if ($existing === null) {
+            return ['errors' => ['Kategori bulunamadı.'], 'slug' => $slug];
+        }
+
+        $result = admin_blog_category_from_input($input, $existing);
+        if ($result['errors'] || !$result['category']) {
+            return ['errors' => $result['errors'] ?: ['Kategori güncellenemedi.'], 'slug' => $slug];
+        }
+        $updated = $result['category'];
+        foreach ($categories as $category) {
+            if ($category['slug'] !== $slug && shop_fold($category['name']) === shop_fold($updated['name'])) {
+                return ['errors' => ['Bu kategori adı başka bir kategoride kullanılıyor.'], 'slug' => $slug];
+            }
+        }
+
+        if ($index >= 0) {
+            $categories[$index] = $updated;
+        } else {
+            $updated['order'] = count($categories) + 1;
+            $categories[] = $updated;
+        }
+        if (!admin_save_blog_categories($categories)) {
+            return ['errors' => ['Kategori kaydedilemedi (storage/ yazma iznini kontrol edin).'], 'slug' => $slug];
+        }
+        return ['errors' => [], 'slug' => $slug];
+    }
+
+    /** Kategoriyi siler; yazıları silmek yerine Genel kategorisine taşır. */
+    function admin_delete_blog_category(string $slug): array
+    {
+        $slug = blog_category_slugify($slug);
+        if ($slug === 'genel') {
+            return ['errors' => ['Genel kategorisi güvenlik için silinemez.'], 'moved' => 0];
+        }
+
+        $posts = blog_posts(false);
+        $moved = 0;
+        foreach ($posts as $i => $post) {
+            if (($post['category'] ?? '') === $slug) {
+                $posts[$i]['category'] = 'genel';
+                $moved++;
+            }
+        }
+
+        $categories = blog_categories();
+        $remaining = array_values(array_filter($categories, fn($category) => $category['slug'] !== $slug));
+        $wasRegistered = count($remaining) !== count($categories);
+        if (!$wasRegistered && $moved === 0) {
+            return ['errors' => ['Kategori bulunamadı.'], 'moved' => 0];
+        }
+        if ($moved > 0 && !admin_save_posts($posts)) {
+            return ['errors' => ['Kategorideki yazılar Genel kategorisine taşınamadı.'], 'moved' => 0];
+        }
+        if ($wasRegistered && !admin_save_blog_categories($remaining)) {
+            return ['errors' => ['Kategori silinemedi (storage/ yazma iznini kontrol edin).'], 'moved' => $moved];
+        }
+        return ['errors' => [], 'moved' => $moved];
+    }
+
     /**
      * Formdan blog yazısı üretir/günceller. $existing verilirse slug korunur.
      * Dönen değer: ['errors' => string[], 'post' => ?array]
@@ -400,6 +567,29 @@ if (!defined('DG_ADMIN')) {
         $errors = [];
         $title = trim((string)($input['title'] ?? ''));
         $tag = trim((string)($input['tag'] ?? ''));
+        $category = '';
+        if (array_key_exists('category', $input) && trim((string)$input['category']) !== '') {
+            $category = blog_category_slugify((string)$input['category']);
+            $knownCategories = [];
+            foreach (blog_category_summaries(false) as $summary) {
+                $knownCategories[(string)$summary['slug']] = true;
+            }
+            if ($existing !== null) {
+                $knownCategories[blog_category_slugify((string)($existing['category'] ?? $existing['tag'] ?? ''))] = true;
+            }
+            if ($category === '' || !isset($knownCategories[$category])) {
+                $errors[] = 'Geçerli bir blog kategorisi seçin.';
+            }
+        } elseif ($existing !== null) {
+            // Eski form kategori alanı göndermezse yazının mevcut kategorisi korunur.
+            $category = blog_category_slugify((string)($existing['category'] ?? $existing['tag'] ?? ''));
+        } else {
+            // Kategori alanı olmayan eski akışlarda etiket kategoriye dönüştürülür.
+            $category = blog_category_slugify($tag);
+        }
+        if ($category === '') {
+            $category = 'genel';
+        }
         $date = trim((string)($input['date'] ?? ''));
         $excerpt = trim((string)($input['excerpt'] ?? ''));
         $content = trim((string)($input['content'] ?? ''));
@@ -435,6 +625,7 @@ if (!defined('DG_ADMIN')) {
         $post = blog_normalize_post([
             'slug'      => $slug,
             'title'     => $title,
+            'category'  => $category,
             'tag'       => $tag,
             'date'      => $date !== '' ? $date : (($existing['date'] ?? '') ?: date('Y-m-d')),
             'excerpt'   => $excerpt,
