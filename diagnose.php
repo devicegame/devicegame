@@ -1,18 +1,15 @@
 <?php
 /**
- * diagnose.php — DeviceGame Otomatik Teşhis v2
+ * diagnose.php — DeviceGame Veritabansız Sistem Teşhisi v3
  * ---------------------------------------------------------------
- * 500 hatası / "Veritabanı bağlantısı kurulamadı" durumunda aç:
- *   siteadın.com/diagnose.php
- * Kurulumun her adımını kontrol edip sorunun tam yerini söyler.
+ * Aç: siteadın.com/diagnose.php
+ * MySQL/PDO kontrolü yoktur; JSON depolama, izinler ve dosyalar denetlenir.
  *
- * ⚠️ GÜVENLİK: Kurulum bitince bu dosyayı SİL!
- *    Kolay yol: siteadın.com/diagnose.php?sil=1  (kendini siler)
+ * ⚠️ Kurulum bitince sil: siteadın.com/diagnose.php?sil=1
  * ---------------------------------------------------------------
  */
 declare(strict_types=1);
 
-// Kendini silme (sadece bu dosyayı siler, başka hiçbir şeye dokunmaz)
 if (isset($_GET['sil']) && $_GET['sil'] === '1') {
     @unlink(__FILE__);
     header('Content-Type: text/html; charset=utf-8');
@@ -22,24 +19,38 @@ if (isset($_GET['sil']) && $_GET['sil'] === '1') {
 error_reporting(E_ALL);
 ini_set('display_errors', '1');
 
-// db.php'ye "ölme, exception fırlat" de — hatayı raporda gösterebilelim.
 define('DG_DIAGNOSE', true);
 
-$pdo_ok  = false;
-$db_err  = null;
-$db_host = $db_name = $db_user = '(okunamadı)';
+$coreOk = false;
+$coreError = null;
 try {
-    require __DIR__ . '/db.php';   // $pdo, $db_host, $db_name, $db_user tanimlar
-    $pdo_ok = ($pdo instanceof PDO);
+    require __DIR__ . '/db.php';
+    $coreOk = true;
 } catch (Throwable $e) {
-    $db_err = $e->getMessage();
+    $coreError = $e->getMessage();
 }
 
 function h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
+function dg_diag_line(bool $ok, string $label, string $value): string {
+    return ($ok ? '✅' : '❌') . ' ' . str_pad($label, 28) . $value . "\n";
+}
+
+/** Yorum satırlarını yok sayarak gerçek php_flag/php_value direktiflerini bulur. */
+function dg_diag_bad_htaccess_directives(string $content): array {
+    $bad = [];
+    foreach (preg_split('/\R/', $content) ?: [] as $i => $line) {
+        $trim = ltrim($line);
+        if ($trim === '' || $trim[0] === '#') continue;
+        if (preg_match('/^(php_flag|php_value)\b/i', $trim)) {
+            $bad[] = 'Satır ' . ($i + 1) . ': ' . trim($line);
+        }
+    }
+    return $bad;
+}
 ?>
 <!doctype html>
 <html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Teşhis — DeviceGame</title>
+<title>Teşhis — DeviceGame (Veritabansız)</title>
 <style>
 body{background:#070A14;color:#EAF0FF;font-family:system-ui,-apple-system,sans-serif;padding:24px;line-height:1.65;max-width:920px;margin:0 auto}
 h1{color:#00E5FF;font-size:22px} h2{color:#8B95B5;font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-top:26px}
@@ -50,8 +61,8 @@ a{color:#00E5FF}.card{background:#0F1428;border:1px solid rgba(255,255,255,.08);
 .danger{background:rgba(255,42,109,.1);border:1px solid rgba(255,42,109,.35);border-radius:16px;padding:16px;margin:14px 0}
 .btn{display:inline-block;background:linear-gradient(135deg,#FF2A6D,#7B2DFF);color:#fff;padding:10px 16px;border-radius:12px;text-decoration:none;font-weight:700}
 </style></head><body>
-<h1>◉ DeviceGame — Otomatik Teşhis</h1>
-<p style="color:#8B95B5">Bu sayfa kurulumu adım adım kontrol eder. Çıktının ekran görüntüsünü destek ile paylaşabilirsin (şifre gösterilmez).</p>
+<h1>◉ DeviceGame — Veritabansız Sistem Teşhisi</h1>
+<p style="color:#8B95B5">Bu sürüm MySQL kullanmaz. Veriler <code>storage/dg/database.json</code> içinde tutulur. Bu sayfa yalnızca PHP, dosyalar, izinler ve JSON bütünlüğünü kontrol eder.</p>
 
 <div class="danger"><b>⚠️ Kurulum bitince bu dosyayı sil:</b> <a class="btn" href="diagnose.php?sil=1">diagnose.php kendini silsin →</a></div>
 
@@ -61,100 +72,138 @@ $bad  = fn($m) => print '<div class="card"><span class="bad">❌ ' . $m . '</spa
 $warn = fn($m) => print '<div class="card"><span class="warn">⚠️ ' . $m . '</span></div>';
 
 // 1) PHP
-echo '<h2>1. PHP & Eklentiler</h2><pre>'
-   . 'PHP surumu    : ' . PHP_VERSION . ' (' . PHP_OS . ")\n"
-   . 'pdo           : ' . (extension_loaded('pdo') ? 'var' : 'YOK') . "\n"
-   . 'pdo_mysql     : ' . (extension_loaded('pdo_mysql') ? 'var' : 'YOK — HOSTING DESTEĞİ ŞART') . "\n"
-   . 'mbstring      : ' . (extension_loaded('mbstring') ? 'var' : 'YOK (site yine calisir, fallback var)') . "\n"
-   . 'session       : ' . (function_exists('session_start') ? 'var' : 'YOK') . "\n"
-   . 'display_errors: ' . ini_get('display_errors') . '  | memory_limit: ' . ini_get('memory_limit') . "\n"
-   . 'SAPI          : ' . PHP_SAPI . "\n</pre>";
-if (!extension_loaded('pdo_mysql')) $bad('pdo_mysql kapalı! cPanel → PHP Eklentileri/Select PHP Version → pdo_mysql işaretle, yoksa hosting desteğine yaz.');
-if (version_compare(PHP_VERSION, '8.0.0', '<')) $bad('PHP çok eski (' . PHP_VERSION . '). Bu sistem PHP 8.0+ ister (tercihen 8.1/8.2). cPanel → MultiPHP Yöneticisi → alan adini 8.1 veya 8.2 yap. Tipik "boş 500" sebebi budur.');
-else $ok('PHP surumu uygun (' . PHP_VERSION . ')');
-
-// 2) Dosyalar & izinler
-echo '<h2>2. Dosyalar & İzinler</h2><pre>';
-foreach (['db.php','schema.sql','schema_hosting.sql','index.php','login.php','assets/css/devicegame.css','admin/index.php','api/purchase.php'] as $f) {
-    echo h(str_pad($f, 32)) . (is_readable(__DIR__ . '/' . $f) ? 'var' : 'YOK / okunamıyor') . "\n";
+echo '<h2>1. PHP</h2><pre>'
+   . dg_diag_line(version_compare(PHP_VERSION, '8.0.0', '>='), 'PHP surumu', PHP_VERSION . ' (' . PHP_OS . ')')
+   . dg_diag_line(extension_loaded('json'), 'json', extension_loaded('json') ? 'var (zorunlu)' : 'YOK (zorunlu)')
+   . dg_diag_line(function_exists('session_start'), 'session', function_exists('session_start') ? 'var (zorunlu)' : 'YOK (zorunlu)')
+   . dg_diag_line(function_exists('password_hash'), 'password_hash', function_exists('password_hash') ? 'var' : 'YOK')
+   . dg_diag_line(function_exists('random_bytes'), 'random_bytes', function_exists('random_bytes') ? 'var' : 'YOK')
+   . 'ℹ️ ' . str_pad('mbstring', 28) . (extension_loaded('mbstring') ? 'var' : 'yok (zorunlu degil; fallback aktif)') . "\n"
+   . 'ℹ️ ' . str_pad('MySQL/PDO', 28) . "gerekmez\n"
+   . 'SAPI: ' . PHP_SAPI . ' | memory_limit: ' . ini_get('memory_limit') . "\n</pre>";
+if (version_compare(PHP_VERSION, '8.0.0', '<')) {
+    $bad('PHP çok eski. cPanel → MultiPHP Yöneticisi → alan adını PHP 8.1 veya 8.2 yap.');
+} else {
+    $ok('PHP sürümü uygun.');
 }
-foreach (['uploads','storage'] as $d) {
-    $p = __DIR__ . '/' . $d;
-    echo h(str_pad($d . '/', 32)) . (is_dir($p) ? (is_writable($p) ? 'var, yazilabilir' : 'var ama YAZILAMIYOR (755/775 yap)') : 'KLASOR YOK') . "\n";
+if (!extension_loaded('json')) $bad('JSON eklentisi kapalı. Hosting panelinden json eklentisini açın.');
+
+// 2) Dosyalar
+echo '<h2>2. Gerekli Dosyalar</h2><pre>';
+$required = [
+    'db.php', 'index.php', 'login.php', 'register.php', 'auth.php', 'logout.php',
+    'assets/css/devicegame.css', 'admin/index.php', 'admin/ads.php', 'admin/users.php',
+    'admin/store.php', 'admin/logs.php', 'api/watch_start.php', 'api/watch_complete.php', 'api/purchase.php',
+    'storage/.htaccess', 'storage/dg/.htaccess', 'uploads/.htaccess', 'uploads/index.html',
+];
+foreach ($required as $f) {
+    echo dg_diag_line(is_readable(__DIR__ . '/' . $f), $f, is_readable(__DIR__ . '/' . $f) ? 'var' : 'YOK / okunamıyor');
 }
 echo '</pre>';
 
-// 3) Veritabani
-echo '<h2>3. Veritabanı Bağlantısı</h2>';
-echo '<pre>db.php ayarlari → Host: ' . h($db_host) . ' | DB: ' . h($db_name) . ' | User: ' . h($db_user) . ' | Sifre: (gizli)</pre>';
-if (!$pdo_ok) {
-    $bad('Bağlantı BAŞARISIZ');
-    echo '<pre>' . h($db_err) . '</pre>';
-    echo '<div class="card"><b>Hata mesajına göre çözüm:</b><ul>'
-       . '<li><code>Can\'t connect to server on \'127.0.0.1\' (115)</code> → db.php\'de host\'u <code>localhost</code> yap. Paylaşımlı hostingler 127.0.0.1 TCP bağlantısını kapatır.</li>'
-       . '<li><code>Access denied for user \'...\'@\'localhost\' (using password: YES)</code> → Şifre yanlış VEYA kullanıcı veritabanına eklenmemiş. cPanel → MySQL Veritabanları → (1) kullanıcının şifresini sıfırla, (2) "Kullanıcıyı Veritabanına Ekle" → TÜM AYRICALIKLAR, (3) db.php\'deki şifreyi yenisiyle değiştir.</li>'
-       . '<li><code>Unknown database \'...\'</code> → DB adını yanlış yazdın. cPanel\'deki tam adı (prefix ile, örn: <code>devicegamer_devicegame</code>) kopyala.</li>'
-       . '<li><code>Access denied ... to database</code> → Kullanıcı var ama bu DB üzerinde yetkisi yok → "Kullanıcıyı Veritabanına Ekle" adımını yap.</li>'
-       . '</ul></div>';
+// 3) Depolama ve izinler
+echo '<h2>3. JSON Depolama & İzinler</h2><pre>';
+$storageDir = defined('DG_STORAGE_DIR') ? DG_STORAGE_DIR : (__DIR__ . '/storage/dg');
+$dataFile = defined('DG_DATA_FILE') ? DG_DATA_FILE : ($storageDir . '/database.json');
+$lockFile = defined('DG_LOCK_FILE') ? DG_LOCK_FILE : ($storageDir . '/database.lock');
+foreach (['storage' => __DIR__ . '/storage', 'storage/dg' => $storageDir, 'uploads' => __DIR__ . '/uploads'] as $label => $path) {
+    $exists = is_dir($path);
+    echo dg_diag_line($exists && is_writable($path), $label . '/', $exists ? (is_writable($path) ? 'yazılabilir' : 'var ama YAZILAMIYOR (755/775)') : 'KLASÖR YOK');
+}
+echo dg_diag_line(is_file($dataFile), 'database.json', is_file($dataFile) ? 'var (' . number_format((int)@filesize($dataFile)) . ' bayt)' : 'henüz yok — ilk açılışta oluşur');
+if (is_file($dataFile)) {
+    echo dg_diag_line(is_readable($dataFile), 'database.json okuma', is_readable($dataFile) ? 'ok' : 'OKUNAMIYOR');
+    echo dg_diag_line(is_writable($dataFile), 'database.json yazma', is_writable($dataFile) ? 'ok' : 'YAZILAMIYOR (644/664)');
+}
+echo dg_diag_line(!is_file($lockFile) || is_writable($lockFile), 'database.lock', is_file($lockFile) ? (is_writable($lockFile) ? 'yazılabilir' : 'YAZILAMIYOR') : 'ilk işlemde oluşur');
+echo '</pre>';
+
+if (!$coreOk) {
+    $bad('Uygulama çekirdeği başlatılamadı.');
+    echo '<pre>' . h($coreError) . '</pre>';
+    echo '<div class="card"><b>Çözüm:</b> <code>storage/</code> ve <code>storage/dg/</code> izinlerini 755/775, varsa <code>database.json</code> izinlerini 644/664 yapın. Sonra bu sayfayı yenileyin.</div>';
 } else {
-    $ok('Bağlantı BAŞARILI — PDO çalışıyor');
+    $ok('Uygulama çekirdeği ve storage/dg hazır.');
+
+    echo '<h2>4. Veri Dosyası</h2>';
     try {
-        $cur = $pdo->query('SELECT DATABASE()')->fetchColumn();
-        echo '<pre>Baglanilan veritabani (SELECT DATABASE()): ' . h($cur) . "\n"
-           . 'MySQL surumu: ' . h($pdo->query('SELECT VERSION()')->fetchColumn()) . '</pre>';
-        if ((string)$cur !== (string)$db_name) $warn('db.php\'deki DB adi ile baglanilan DB farkli gorunuyor — settings\'i kontrol et.');
+        $data = dg_read_data(true);
+        $counts = [];
+        foreach (['users', 'ads', 'watch_logs', 'watch_sessions', 'store_items', 'store_keys', 'purchases'] as $name) {
+            $counts[] = $name . ': ' . count($data[$name] ?? []);
+        }
+        echo '<pre>' . h(implode("\n", $counts)) . "\n"
+           . 'daily_watch_limit: ' . h($data['settings']['daily_watch_limit'] ?? '(yok)') . "\n"
+           . 'updated_at: ' . h($data['meta']['updated_at'] ?? '(yok)') . '</pre>';
+        $ok('database.json geçerli JSON ve okunabiliyor.');
 
-        echo '<h2>4. Tablolar</h2>';
-        $tables = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
-        echo '<pre>Bu veritabanindaki tablolar (' . count($tables) . '): ' . h(implode(', ', $tables) ?: '(hic tablo yok)') . '</pre>';
-        $need = ['users','ads','user_watch_logs','watch_sessions','store_items','store_keys','purchases','settings'];
-        $missing = array_diff($need, $tables);
-        if ($missing) {
-            $bad('Eksik tablolar: ' . h(implode(', ', $missing)) . ' → Şema bu veritabanına kurulmamış. <b>Boş 500 hatasının en sık sebebi budur.</b>');
-            echo '<div class="card"><b>Çözüm (cPanel):</b> phpMyAdmin → solda <code>' . h($db_name) . '</code> veritabanını seç → İçe aktar → <code>schema_hosting.sql</code> dosyasını yükle → Git.<br>'
-               . 'Not: <code>schema.sql</code> içindeki <code>CREATE DATABASE</code> satırı cPanel\'de yetki hatası verip içe aktarımı yarıda kesebilir; o yüzden hostingde <code>schema_hosting.sql</code> kullan.<br>'
-               . 'Tabloları başka bir veritabanında görüyorsan (örn: <code>devicegame</code>), db.php yanlış DB\'ye bakıyor demektir — db.php\'deki DB adını tabloların olduğu DB yap.</div>';
+        echo '<h2>5. Admin Hesabı</h2>';
+        $adm = null;
+        foreach ($data['users'] ?? [] as $u) {
+            if (($u['email'] ?? '') === 'admin@devicegame.com') { $adm = $u; break; }
+        }
+        if (!$adm) {
+            $bad('admin@devicegame.com bulunamadı. Bu genellikle database.json elle boşaltılmış demektir. Yedeği geri yükleyin veya dosyayı yedekleyip silerek ilk kurulum verilerinin yeniden oluşmasını sağlayın.');
         } else {
-            $ok('Tüm tablolar mevcut');
-            $u = $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
-            $a = $pdo->query('SELECT COUNT(*) FROM ads')->fetchColumn();
-            $s = $pdo->query('SELECT COUNT(*) FROM store_items')->fetchColumn();
-            echo '<pre>Kullanici: ' . h($u) . ' | Reklam: ' . h($a) . ' | Urun: ' . h($s) . '</pre>';
-
-            echo '<h2>5. Admin Hesabı</h2>';
-            $adm = $pdo->query("SELECT username,email,password_hash,is_admin FROM users WHERE email='admin@devicegame.com' LIMIT 1")->fetch();
-            if (!$adm) {
-                $bad('admin@devicegame.com kullanıcısı yok — örnek veriler (seed) içe aktarılmamış. schema_hosting.sql\'i tekrar içe aktar.');
+            echo '<pre>Admin: ' . h($adm['username'] ?? '') . ' &lt;' . h($adm['email'] ?? '') . '&gt; is_admin=' . h($adm['is_admin'] ?? '') . ' bakiye=' . h($adm['dcoin_balance'] ?? '') . '</pre>';
+            if (password_verify('Admin123!', (string)($adm['password_hash'] ?? ''))) {
+                $ok('Admin şifresi <code>Admin123!</code> — giriş çalışmalı. Canlıda kullanmaya başlamadan önce admin şifresini değiştirme akışını ekleyene kadar bu hesabı koruyun.');
+            } elseif (password_verify('password', (string)($adm['password_hash'] ?? ''))) {
+                $warn('Bu veri dosyasında eski hatalı seed var: şifre <code>password</code>. Yedeği alıp database.json dosyasını silerseniz güncel seed ile yeniden oluşur (mevcut veriler gider).');
             } else {
-                echo '<pre>Admin: ' . h($adm['username']) . ' &lt;' . h($adm['email']) . '&gt; is_admin=' . h($adm['is_admin']) . '</pre>';
-                if (password_verify('Admin123!', $adm['password_hash']))       $ok('Admin şifresi <code>Admin123!</code> — giriş çalışmalı. (Canlıda mutlaka değiştir!)');
-                elseif (password_verify('password', $adm['password_hash']))    $warn('Bu veritabanında ESKİ hatalı şema var: admin şifresi <code>password</code>. Yeni schema_hosting.sql ile tekrar kur veya phpMyAdmin\'de users tablosunda şifreyi güncelle.');
-                else $warn('Admin şifresi Admin123! değil (değiştirilmiş olabilir — sorun değil, kendi şifrenle gir).');
+                $warn('Admin şifresi Admin123! değil (değiştirilmiş olabilir). Kendi şifrenizle giriş yapın.');
             }
+            if ((int)($adm['is_admin'] ?? 0) !== 1) $bad('Admin hesabında is_admin=1 değil. database.json içinde bu kullanıcının is_admin değerini 1 yapın (önce yedek alın).');
         }
     } catch (Throwable $e) {
-        $bad('Sorgu hatası: ' . h($e->getMessage()));
+        $bad('Veri dosyası okunamadı: ' . h($e->getMessage()));
+        echo '<div class="card">Dosya bozuksa sistem onu kendiliğinden silmez. <code>storage/dg/database.json</code> dosyasını önce yedekleyin, JSON sözdizimini düzeltin. Sıfırdan başlamak isterseniz yedekten sonra dosyayı silin; ilk açılışta örnek verilerle yeniden oluşur.</div>';
     }
 }
 
-// 6) .htaccess
-echo '<h2>6. .htaccess Dosyaları</h2><pre>';
-foreach (['.htaccess','uploads/.htaccess','storage/.htaccess'] as $f) {
+// 6) Web koruması ve .htaccess
+echo '<h2>6. Web Koruması & .htaccess</h2>';
+$storageGuard = is_file(__DIR__ . '/storage/.htaccess') ? (string)file_get_contents(__DIR__ . '/storage/.htaccess') : '';
+$dgGuard = is_file($storageDir . '/.htaccess') ? (string)file_get_contents($storageDir . '/.htaccess') : '';
+if (stripos($storageGuard, 'Require all denied') !== false || stripos($dgGuard, 'Require all denied') !== false) {
+    $ok('Apache için storage web erişim engeli bulundu. Nginx kullanıyorsanız ayrıca <code>location ^~ /storage/ { deny all; }</code> kuralı gerekir.');
+} else {
+    $bad('storage için "Require all denied" bulunamadı. storage/.htaccess ve storage/dg/.htaccess dosyalarını yeniden yükleyin; Nginx kullanıyorsanız /storage/ yolunu kapatın.');
+}
+
+echo '<pre>';
+foreach (['.htaccess', 'uploads/.htaccess', 'storage/.htaccess', 'storage/dg/.htaccess'] as $f) {
     $p = __DIR__ . '/' . $f;
     if (is_file($p)) {
         $c = (string)file_get_contents($p);
         echo h($f) . ":\n" . h(substr($c, 0, 600)) . "\n---\n";
-        if (strpos($c, 'php_flag') !== false || strpos($c, 'php_value') !== false) {
+        $directives = dg_diag_bad_htaccess_directives($c);
+        if ($directives) {
             echo '</pre>';
-            $warn(h($f) . ' içinde php_flag/php_value var — PHP-FPM/CGI hostinglerde <b>500 hatası</b> yapar! Repodaki yeni sürümle değiştir veya o satırları sil.');
+            $warn(h($f) . ' içinde gerçek PHP yapılandırma direktifi var; PHP-FPM/CGI hostinglerde 500 yapabilir: <code>' . h(implode(' | ', $directives)) . '</code>');
             echo '<pre>';
         }
-    } else echo h($f) . ": yok\n";
+    } else {
+        echo h($f) . ": yok\n";
+    }
 }
 echo '</pre>';
 
-// 7) error_log son satirlar
-echo '<h2>7. error_log (son satırlar)</h2>';
+// 7) Eski veritabanı kalıntıları
+echo '<h2>7. Eski Veritabanı/Test Kalıntıları</h2><pre>';
+$leftovers = ['schema.sql', 'schema_hosting.sql', 'db_config.php', 'db_config.example.php', 'test_db.php', 'hata_gor.php', 'hata2.php'];
+$foundLeftovers = [];
+foreach ($leftovers as $f) {
+    $exists = is_file(__DIR__ . '/' . $f);
+    if ($exists) $foundLeftovers[] = $f;
+    echo ($exists ? '⚠️ ' : '✅ ') . str_pad($f, 28) . ($exists ? 'var (artık kullanılmıyor, silebilirsiniz)' : 'yok') . "\n";
+}
+echo '</pre>';
+if (!$foundLeftovers) $ok('Eski MySQL/test kalıntısı yok.');
+else $warn('Bu dosyalar yeni sistem tarafından kullanılmıyor. Özellikle test dosyalarını güvenlik için silin: <code>' . h(implode(', ', $foundLeftovers)) . '</code>');
+
+// 8) error_log
+echo '<h2>8. error_log (son satırlar)</h2>';
 $logCandidates = [__DIR__ . '/error_log', __DIR__ . '/../error_log', ini_get('error_log') ?: ''];
 $foundLog = false;
 foreach ($logCandidates as $lp) {
@@ -165,13 +214,12 @@ foreach ($logCandidates as $lp) {
         $foundLog = true; break;
     }
 }
-if (!$foundLog) echo '<pre>error_log dosyasi bulunamadi/okunamiyor. cPanel → Errors bolumune de bakabilirsin.</pre>';
+if (!$foundLog) echo '<pre>error_log dosyası bulunamadı/okunamıyor. cPanel → Errors bölümüne de bakabilirsiniz.</pre>';
 
 echo '<h2>Sonuç</h2><div class="card">'
-   . 'Her şey ✅ ise <a href="index.php">index.php</a> açılmalı. Gerçek hatayı anlık görmek için: <a href="index.php?debug=1">index.php?debug=1</a><br>'
-   . 'Bağlantı ❌ → yukarıdaki 3. bölümdeki çözümü uygula. &nbsp;|&nbsp; Tablo ❌ → phpMyAdmin → DB seç → İçe aktar → <code>schema_hosting.sql</code><br>'
-   . 'Hâlâ boş 500 alıyorsan 7. bölümdeki son "PHP Fatal error" satırı gerçek sebeptir — o satırı kopyalayıp destekle paylaş.'
+   . 'Kritik maddeler ✅ ise <a href="index.php">index.php</a> açılmalı. Gerçek hatayı anlık görmek için: <a href="index.php?debug=1">index.php?debug=1</a><br>'
+   . '500 devam ediyorsa 8. bölümdeki son "PHP Fatal error" satırı gerçek sebeptir. Veritabanı/MySQL/phpMyAdmin adımı yoktur.'
    . '</div>';
-echo '<p style="color:#5A6585;font-size:12px;margin-top:20px">İşin bitince: <a href="diagnose.php?sil=1">bu dosyayı sil</a> • DeviceGame diagnose v2</p>';
+echo '<p style="color:#5A6585;font-size:12px;margin-top:20px">İşin bitince: <a href="diagnose.php?sil=1">bu dosyayı sil</a> • DeviceGame diagnose v3 (database-less)</p>';
 ?>
 </body></html>

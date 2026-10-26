@@ -4,6 +4,11 @@ Siteyle aynı tasarım dilinde, **saf PHP** ile yazılmış mağaza katmanı.
 Veritabanı, framework, build adımı yok. Sepet oturumda tutulur, sipariş
 WhatsApp'ta hazır bir mesaj olarak açılır.
 
+> **D-Coin sistemi de veritabansızdır:** Kullanıcılar, reklam ödülleri,
+> bakiyeler, tek çatı mağaza ve loglar `storage/dg/database.json` içinde
+> tutulur. Kurulum ve yedekleme adımları için **[KURULUM.md](KURULUM.md)**
+> dosyasına bakın. MySQL/phpMyAdmin gerekmez.
+
 ## Gereksinim
 
 - PHP 8.1 veya üzeri (mbstring, session) — kod 8.0 ile de uyumlu

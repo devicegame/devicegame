@@ -1,7 +1,5 @@
 # DeviceGame uploads koruma
-# NOT: "php_flag engine off" ve "Options" satirlari bazi paylasimli hostinglerde
-# (CGI/PHP-FPM + kisitli AllowOverride) 500 hatasina yol acar — bilerek kullanilmadi.
-# Dizin listelemeyi bos index.html engeller; PHP calistirma asagidaki kuralla kapatilir.
+# Dizin listelemeyi index.html engeller; PHP calistirma asagidaki kuralla kapatilir.
 
 <FilesMatch "\.(php|phtml|phar|php[3457])$">
   <IfModule mod_authz_core.c>

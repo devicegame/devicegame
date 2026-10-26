@@ -12,26 +12,49 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
     $reason=trim($_POST['reason']??'Admin işlemi');
     if ($uid<=0 || $amount===0) { flash_error_set('Geçersiz tutar'); header('Location: users.php'); exit; }
     if ($amount < -100000 || $amount > 100000) { flash_error_set('Tutár aralığı: -100000 .. 100000'); header('Location: users.php'); exit; }
-    // Negatifte bakiye eksiye düşmesin
-    if ($amount < 0) {
-      $bal=(int)$pdo->query("SELECT dcoin_balance FROM users WHERE id=$uid")->fetchColumn();
-      if ($bal + $amount < 0) { flash_error_set("Bakiye yetersiz. Mevcut: $bal, çıkarmak istenen: ".abs($amount)); header('Location: users.php'); exit; }
+    try {
+      $result = dg_mutate(function (array &$data) use ($uid, $amount): array {
+        $i = dg_index_of_id($data['users'], $uid);
+        if ($i === null) return ['ok' => false, 'error' => 'Kullanıcı bulunamadı.'];
+        $bal = (int)($data['users'][$i]['dcoin_balance'] ?? 0);
+        if ($bal + $amount < 0) {
+          return ['ok' => false, 'error' => "Bakiye yetersiz. Mevcut: $bal, çıkarmak istenen: " . abs($amount)];
+        }
+        $data['users'][$i]['dcoin_balance'] = $bal + $amount;
+        $data['users'][$i]['updated_at'] = dg_now();
+        return ['ok' => true];
+      });
+      if (empty($result['ok'])) flash_error_set((string)$result['error']);
+      else flash_set(($amount>0?"+$amount":"$amount")." D-Coin uygulandı. Gerekçe: $reason");
+    } catch (Throwable $e) {
+      error_log('[admin users coin] ' . $e->getMessage());
+      flash_error_set('Bakiye güncellenemedi. Depolama izinlerini kontrol edin.');
     }
-    $pdo->prepare("UPDATE users SET dcoin_balance = dcoin_balance + ? WHERE id=?")->execute([$amount,$uid]);
-    flash_set(($amount>0?"+$amount":"$amount")." D-Coin uygulandı. Gerekçe: $reason");
     header('Location: users.php'); exit;
   }
   if (isset($_POST['toggle_ban'])) {
     $uid=(int)($_POST['user_id']??0);
     if ($uid === (int)$user['id']) { flash_error_set('Kendini banlayamazsın'); header('Location: users.php'); exit; }
-    $pdo->prepare("UPDATE users SET is_banned = 1 - is_banned WHERE id=?")->execute([$uid]);
+    dg_mutate(function (array &$data) use ($uid): void {
+      $i = dg_index_of_id($data['users'], $uid);
+      if ($i !== null) {
+        $data['users'][$i]['is_banned'] = 1 - (int)($data['users'][$i]['is_banned'] ?? 0);
+        $data['users'][$i]['updated_at'] = dg_now();
+      }
+    });
     flash_set('Ban durumu değiştirildi.');
     header('Location: users.php'); exit;
   }
   if (isset($_POST['toggle_admin'])) {
     $uid=(int)($_POST['user_id']??0);
     if ($uid === (int)$user['id']) { flash_error_set('Kendi admin yetkinle oynama'); header('Location: users.php'); exit; }
-    $pdo->prepare("UPDATE users SET is_admin = 1 - is_admin WHERE id=?")->execute([$uid]);
+    dg_mutate(function (array &$data) use ($uid): void {
+      $i = dg_index_of_id($data['users'], $uid);
+      if ($i !== null) {
+        $data['users'][$i]['is_admin'] = 1 - (int)($data['users'][$i]['is_admin'] ?? 0);
+        $data['users'][$i]['updated_at'] = dg_now();
+      }
+    });
     flash_set('Admin yetkisi değiştirildi.');
     header('Location: users.php'); exit;
   }
@@ -41,16 +64,17 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
 $q = trim($_GET['q'] ?? '');
 $page = max(1,(int)($_GET['page']??1));
 $per = 20; $off=($page-1)*$per;
+$all_users = dg_all('users');
+usort($all_users, fn(array $a, array $b): int => (int)($b['id'] ?? 0) <=> (int)($a['id'] ?? 0));
 if ($q!=='') {
-  $like="%$q%";
-  $st=$pdo->prepare("SELECT * FROM users WHERE username LIKE ? OR email LIKE ? ORDER BY id DESC LIMIT $per OFFSET $off");
-  $st->execute([$like,$like]);
-  $users=$st->fetchAll();
-  $st2=$pdo->prepare("SELECT COUNT(*) FROM users WHERE username LIKE ? OR email LIKE ?"); $st2->execute([$like,$like]); $total=(int)$st2->fetchColumn();
-} else {
-  $st=$pdo->query("SELECT * FROM users ORDER BY id DESC LIMIT $per OFFSET $off"); $users=$st->fetchAll();
-  $total=(int)$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+  $needle = dg_casefold($q);
+  $all_users = array_values(array_filter($all_users, function (array $u) use ($needle): bool {
+    return strpos(dg_casefold((string)($u['username'] ?? '')), $needle) !== false
+        || strpos(dg_casefold((string)($u['email'] ?? '')), $needle) !== false;
+  }));
 }
+$total = count($all_users);
+$users = array_slice($all_users, $off, $per);
 $pages = (int)ceil($total/$per);
 
 admin_head('Kullanıcı Yönetimi');

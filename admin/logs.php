@@ -7,6 +7,29 @@ $tab = $_GET['tab'] ?? 'watch';
 $page = max(1,(int)($_GET['page']??1));
 $per=20; $off=($page-1)*$per;
 
+// JSON kayıtlarını ilişkili bilgilerle zenginleştir
+$data = dg_read_data();
+$users_by_id = dg_index_by_id($data['users'] ?? []);
+$ads_by_id = dg_index_by_id($data['ads'] ?? []);
+$items_by_id = dg_index_by_id($data['store_items'] ?? []);
+
+$all_watch_rows = [];
+foreach (dg_sort_newest($data['watch_logs'] ?? [], 'watched_at') as $r) {
+  $u = $users_by_id[(int)($r['user_id'] ?? 0)] ?? [];
+  $r['username'] = $u['username'] ?? ('#' . (int)($r['user_id'] ?? 0));
+  $r['email'] = $u['email'] ?? '';
+  $r['title'] = $ads_by_id[(int)($r['ad_id'] ?? 0)]['title'] ?? ($r['ad_title'] ?? 'Silinmiş reklam');
+  $all_watch_rows[] = $r;
+}
+$all_purchase_rows = [];
+foreach (dg_sort_newest($data['purchases'] ?? [], 'created_at') as $r) {
+  $u = $users_by_id[(int)($r['user_id'] ?? 0)] ?? [];
+  $r['username'] = $u['username'] ?? ('#' . (int)($r['user_id'] ?? 0));
+  $r['email'] = $u['email'] ?? '';
+  $r['name'] = $items_by_id[(int)($r['store_item_id'] ?? 0)]['name'] ?? ($r['item_name'] ?? 'Silinmiş ürün');
+  $all_purchase_rows[] = $r;
+}
+
 // CSV export?
 if (isset($_GET['export']) && $_GET['export']==='watch') {
   header('Content-Type: text/csv; charset=utf-8');
@@ -14,8 +37,7 @@ if (isset($_GET['export']) && $_GET['export']==='watch') {
   echo "\xEF\xBB\xBF";
   $out=fopen('php://output','w');
   fputcsv($out,['ID','Kullanıcı','E-posta','Reklam','Kazanılan D-Coin','Tarih','IP']);
-  $rows=$pdo->query("SELECT l.*, u.username, u.email, a.title FROM user_watch_logs l JOIN users u ON u.id=l.user_id JOIN ads a ON a.id=l.ad_id ORDER BY l.watched_at DESC")->fetchAll();
-  foreach($rows as $r) fputcsv($out,[$r['id'],$r['username'],$r['email'],$r['title'],$r['earned_dcoin'],$r['watched_at'],$r['ip_address']]);
+  foreach($all_watch_rows as $r) fputcsv($out,[$r['id'],$r['username'],$r['email'],$r['title'],$r['earned_dcoin'],$r['watched_at'],$r['ip_address']]);
   exit;
 }
 if (isset($_GET['export']) && $_GET['export']==='purchase') {
@@ -24,8 +46,7 @@ if (isset($_GET['export']) && $_GET['export']==='purchase') {
   echo "\xEF\xBB\xBF";
   $out=fopen('php://output','w');
   fputcsv($out,['ID','Kullanıcı','E-posta','Ürün','Ödeme','Tutar','Key','Tarih']);
-  $rows=$pdo->query("SELECT p.*, u.username, u.email, si.name FROM purchases p JOIN users u ON u.id=p.user_id JOIN store_items si ON si.id=p.store_item_id ORDER BY p.created_at DESC")->fetchAll();
-  foreach($rows as $r) fputcsv($out,[$r['id'],$r['username'],$r['email'],$r['name'],$r['payment_method'],$r['payment_method']=='dcoin'?$r['price_paid_dcoin']:$r['price_paid_tl'],$r['delivered_key'],$r['created_at']]);
+  foreach($all_purchase_rows as $r) fputcsv($out,[$r['id'],$r['username'],$r['email'],$r['name'],$r['payment_method'],$r['payment_method']=='dcoin'?$r['price_paid_dcoin']:$r['price_paid_tl'],$r['delivered_key'],$r['created_at']]);
   exit;
 }
 
@@ -55,11 +76,18 @@ admin_head('Log & İzleme Geçmişi');
 </div>
 
 <?php if($tab==='watch'):
-  $where="1"; $params=[];
-  if($q!==''){ $where="(u.username LIKE ? OR u.email LIKE ? OR a.title LIKE ?)"; $params=["%$q%","%$q%","%$q%"]; }
-  $cnt=$pdo->prepare("SELECT COUNT(*) FROM user_watch_logs l JOIN users u ON u.id=l.user_id JOIN ads a ON a.id=l.ad_id WHERE $where"); $cnt->execute($params); $total=(int)$cnt->fetchColumn();
+  $filtered = $all_watch_rows;
+  if($q!==''){
+    $needle = dg_casefold($q);
+    $filtered = array_values(array_filter($filtered, fn(array $r): bool =>
+      strpos(dg_casefold((string)$r['username']), $needle) !== false ||
+      strpos(dg_casefold((string)$r['email']), $needle) !== false ||
+      strpos(dg_casefold((string)$r['title']), $needle) !== false
+    ));
+  }
+  $total = count($filtered);
   $pages=max(1,ceil($total/$per));
-  $st=$pdo->prepare("SELECT l.*, u.username, u.email, a.title FROM user_watch_logs l JOIN users u ON u.id=l.user_id JOIN ads a ON a.id=l.ad_id WHERE $where ORDER BY l.watched_at DESC LIMIT $per OFFSET $off"); $st->execute($params); $rows=$st->fetchAll();
+  $rows=array_slice($filtered, $off, $per);
 ?>
 <div class="dg-card">
   <div class="dg-card-head"><h2>Reklam İzleme Geçmişi</h2><span class="dg-badge"><?=$total?> KAYIT</span></div>
@@ -78,11 +106,18 @@ admin_head('Log & İzleme Geçmişi');
 </div>
 
 <?php else:
-  $where="1"; $params=[];
-  if($q!==''){ $where="(u.username LIKE ? OR u.email LIKE ? OR si.name LIKE ?)"; $params=["%$q%","%$q%","%$q%"]; }
-  $cnt=$pdo->prepare("SELECT COUNT(*) FROM purchases p JOIN users u ON u.id=p.user_id JOIN store_items si ON si.id=p.store_item_id WHERE $where"); $cnt->execute($params); $total=(int)$cnt->fetchColumn();
+  $filtered = $all_purchase_rows;
+  if($q!==''){
+    $needle = dg_casefold($q);
+    $filtered = array_values(array_filter($filtered, fn(array $r): bool =>
+      strpos(dg_casefold((string)$r['username']), $needle) !== false ||
+      strpos(dg_casefold((string)$r['email']), $needle) !== false ||
+      strpos(dg_casefold((string)$r['name']), $needle) !== false
+    ));
+  }
+  $total = count($filtered);
   $pages=max(1,ceil($total/$per));
-  $st=$pdo->prepare("SELECT p.*, u.username, u.email, si.name FROM purchases p JOIN users u ON u.id=p.user_id JOIN store_items si ON si.id=p.store_item_id WHERE $where ORDER BY p.created_at DESC LIMIT $per OFFSET $off"); $st->execute($params); $rows=$st->fetchAll();
+  $rows=array_slice($filtered, $off, $per);
 ?>
 <div class="dg-card" id="sat">
   <div class="dg-card-head"><h2>Mağaza Satın Alma Geçmişi</h2><span class="dg-badge"><?=$total?> KAYIT</span></div>

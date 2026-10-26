@@ -15,7 +15,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
     $duration = (int)($_POST['duration_sec'] ?? 30);
     $is_active = isset($_POST['is_active']) ? 1:0;
 
-    if ($title==='' || $video_url==='') { flash_error_set('Başlık ve video URL zorunlu'); header('Location: ads.php'); exit; }
+    if ($title==='') { flash_error_set('Başlık zorunlu'); header('Location: ads.php'); exit; }
     if ($reward<1 || $reward>1000) $reward = 10;
     if ($duration<3 || $duration>600) $duration = 30;
 
@@ -33,43 +33,75 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
       }
     }
 
-    if ($id>0) {
-      // Güncelle — eğer yeni dosya yüklenmediyse mevcut video_path'i koru
-      if ($uploaded_path) {
-        $pdo->prepare("UPDATE ads SET title=?, video_url=?, video_path=?, reward_dcoin=?, duration_sec=?, is_active=? WHERE id=?")
-            ->execute([$title,$video_url,$uploaded_path,$reward,$duration,$is_active,$id]);
-      } else {
-        $pdo->prepare("UPDATE ads SET title=?, video_url=?, reward_dcoin=?, duration_sec=?, is_active=? WHERE id=?")
-            ->execute([$title,$video_url,$reward,$duration,$is_active,$id]);
-      }
-      flash_set('Reklam güncellendi.');
-    } else {
-      $pdo->prepare("INSERT INTO ads (title, video_url, video_path, reward_dcoin, duration_sec, is_active) VALUES (?,?,?,?,?,?)")
-          ->execute([$title,$video_url,$uploaded_path,$reward,$duration,$is_active]);
-      flash_set('Reklam eklendi.');
+    if ($video_url==='') { flash_error_set('Video URL yazın veya bir video dosyası yükleyin'); header('Location: ads.php'); exit; }
+
+    try {
+      $saved = dg_mutate(function (array &$data) use ($id, $title, $video_url, $uploaded_path, $reward, $duration, $is_active): bool {
+        if ($id > 0) {
+          $i = dg_index_of_id($data['ads'], $id);
+          if ($i === null) return false;
+          $data['ads'][$i]['title'] = $title;
+          $data['ads'][$i]['video_url'] = $video_url;
+          if ($uploaded_path) $data['ads'][$i]['video_path'] = $uploaded_path;
+          $data['ads'][$i]['reward_dcoin'] = $reward;
+          $data['ads'][$i]['duration_sec'] = $duration;
+          $data['ads'][$i]['is_active'] = $is_active;
+          $data['ads'][$i]['updated_at'] = dg_now();
+          return true;
+        }
+
+        $now = dg_now();
+        $data['ads'][] = [
+          'id' => dg_next_id($data, 'ads'),
+          'title' => $title,
+          'video_url' => $video_url,
+          'video_path' => $uploaded_path,
+          'thumbnail_url' => null,
+          'reward_dcoin' => $reward,
+          'duration_sec' => $duration,
+          'is_active' => $is_active,
+          'created_at' => $now,
+          'updated_at' => $now,
+        ];
+        return true;
+      });
+      if ($saved) flash_set($id > 0 ? 'Reklam güncellendi.' : 'Reklam eklendi.');
+      else flash_error_set('Reklam bulunamadı.');
+    } catch (Throwable $e) {
+      error_log('[admin ads save] ' . $e->getMessage());
+      flash_error_set('Reklam kaydedilemedi. Depolama izinlerini kontrol edin.');
     }
     header('Location: ads.php'); exit;
   }
 
   if (isset($_POST['delete_ad'])) {
     $id=(int)($_POST['id']??0);
-    $pdo->prepare("DELETE FROM ads WHERE id=?")->execute([$id]);
+    dg_mutate(function (array &$data) use ($id): void {
+      $data['ads'] = array_values(array_filter($data['ads'], fn(array $a): bool => (int)$a['id'] !== $id));
+      // Açık izleme oturumlarını temizle; geçmiş loglardaki reklam adı snapshot olarak kalır.
+      $data['watch_sessions'] = array_values(array_filter($data['watch_sessions'], fn(array $s): bool => (int)$s['ad_id'] !== $id));
+    });
     flash_set('Reklam silindi.');
     header('Location: ads.php'); exit;
   }
   if (isset($_POST['toggle_ad'])) {
     $id=(int)($_POST['id']??0);
-    $pdo->prepare("UPDATE ads SET is_active = 1 - is_active WHERE id=?")->execute([$id]);
+    dg_mutate(function (array &$data) use ($id): void {
+      $i = dg_index_of_id($data['ads'], $id);
+      if ($i !== null) {
+        $data['ads'][$i]['is_active'] = 1 - (int)($data['ads'][$i]['is_active'] ?? 0);
+        $data['ads'][$i]['updated_at'] = dg_now();
+      }
+    });
     header('Location: ads.php'); exit;
   }
 }
 
 // Liste
-$ads = $pdo->query("SELECT * FROM ads ORDER BY created_at DESC")->fetchAll();
+$ads = dg_sort_newest(dg_all('ads'));
 $edit = null;
 if (isset($_GET['edit'])) {
-  $eid=(int)$_GET['edit'];
-  $st=$pdo->prepare("SELECT * FROM ads WHERE id=?"); $st->execute([$eid]); $edit=$st->fetch();
+  $edit = dg_find_by_id($ads, (int)$_GET['edit']);
 }
 
 admin_head('Reklam Yönetimi');
@@ -93,7 +125,7 @@ admin_head('Reklam Yönetimi');
         <?=csrf_field()?>
         <input type="hidden" name="id" value="<?= (int)($edit['id']??0) ?>">
         <label class="dg-field"><span>Reklam Başlığı *</span><input type="text" name="title" required maxlength="180" placeholder="Cyber Hunt — Fragman" value="<?=e($edit['title']??'')?>"></label>
-        <label class="dg-field"><span>Video URL * <small style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--dim)">— dış link veya yükle</small></span><input type="url" name="video_url" required placeholder="https://.../video.mp4 veya uploads/..." value="<?=e($edit['video_url']??'')?>"></label>
+        <label class="dg-field"><span>Video URL / Yol <small style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--dim)">— dış link, uploads/ yolu veya aşağıdan yükle</small></span><input type="text" name="video_url" placeholder="https://.../video.mp4 veya uploads/video.mp4" value="<?=e($edit['video_url']??'')?>"></label>
         <label class="dg-field"><span>Video Dosyası Yükle <small style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--dim)">.mp4/.webm — max 80MB — URL’i otomatik doldurur</small></span><input type="file" name="video_file" accept=".mp4,.webm,.ogg,video/mp4,video/webm"></label>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <label class="dg-field"><span>Kazanç (D-Coin) *</span><input type="number" name="reward_dcoin" min="1" max="1000" required value="<?= (int)($edit['reward_dcoin']??10) ?>"></label>

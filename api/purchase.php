@@ -2,70 +2,109 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../db.php';
 header('Content-Type: application/json; charset=utf-8');
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); echo json_encode(['ok'=>false,'error'=>'Method not allowed']); exit; }
-$input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
-if (!csrf_verify($input['csrf'] ?? '')) { echo json_encode(['ok'=>false,'error'=>'CSRF doğrulaması başarısız']); exit; }
-// API'de require_login() kullanma: HTML redirect doner, fetch().json() patlar. JSON 401 don.
-if (!is_logged_in()) { http_response_code(401); echo json_encode(['ok'=>false,'error'=>'Giriş yapmalısın']); exit; }
-$user = current_user($pdo);
-if (!$user) { http_response_code(401); echo json_encode(['ok'=>false,'error'=>'Giriş yapmalısın']); exit; }
-$uid = (int)$user['id'];
-if ((int)$user['is_banned']===1) { echo json_encode(['ok'=>false,'error'=>'Hesabın engellenmiş']); exit; }
 
-$item_id = (int)($input['store_item_id'] ?? 0);
-$method  = $input['payment_method'] ?? '';
-if (!in_array($method, ['dcoin','cash'], true)) { echo json_encode(['ok'=>false,'error'=>'Geçersiz ödeme yöntemi']); exit; }
-if ($item_id<=0) { echo json_encode(['ok'=>false,'error'=>'Geçersiz ürün']); exit; }
-
-$st = $pdo->prepare("SELECT * FROM store_items WHERE id=? AND is_active=1 LIMIT 1");
-$st->execute([$item_id]); $item = $st->fetch();
-if (!$item) { echo json_encode(['ok'=>false,'error'=>'Ürün bulunamadı']); exit; }
-
-// Stok kontrol — kullanılmamış key var mı?
-$st = $pdo->prepare("SELECT * FROM store_keys WHERE store_item_id=? AND is_used=0 LIMIT 1 FOR UPDATE");
-try{
-  $pdo->beginTransaction();
-  // FOR UPDATE için tekrar seç (transaction içinde)
-  $st->execute([$item_id]);
-  $key = $st->fetch();
-  if (!$key) { $pdo->rollBack(); echo json_encode(['ok'=>false,'error'=>'Üzgünüz, bu ürün stokta kalmadı']); exit; }
-
-  $price_tl = $item['price_tl'];
-  $price_dcoin = (int)$item['price_dcoin'];
-
-  if ($method==='dcoin') {
-    if ($price_dcoin<=0) { $pdo->rollBack(); echo json_encode(['ok'=>false,'error'=>'Bu ürün D-Coin ile alınamıyor']); exit; }
-    // Bakiye kontrolü
-    $bal = (int)$pdo->query("SELECT dcoin_balance FROM users WHERE id=$uid FOR UPDATE")->fetchColumn();
-    if ($bal < $price_dcoin) { $pdo->rollBack(); echo json_encode(['ok'=>false,'error'=>"Yetersiz D-Coin. Gerekli: $price_dcoin, bakiyen: $bal"]); exit; }
-    // Düş
-    $pdo->prepare("UPDATE users SET dcoin_balance = dcoin_balance - ? WHERE id=?")->execute([$price_dcoin, $uid]);
-    // Key'i işaretle
-    $pdo->prepare("UPDATE store_keys SET is_used=1, used_by=?, used_at=NOW() WHERE id=?")->execute([$uid, $key['id']]);
-    // Purchases
-    $pdo->prepare("INSERT INTO purchases (user_id, store_item_id, store_key_id, payment_method, price_paid_dcoin, delivered_key) VALUES (?,?,?,?,?,?)")
-        ->execute([$uid, $item_id, $key['id'], 'dcoin', $price_dcoin, $key['key_code']]);
-    // Stok güncelle
-    $pdo->prepare("UPDATE store_items SET stock = (SELECT COUNT(*) FROM store_keys WHERE store_item_id=? AND is_used=0) WHERE id=?")->execute([$item_id, $item_id]);
-    $pdo->commit();
-    $newBal = (int)$pdo->query("SELECT dcoin_balance FROM users WHERE id=$uid")->fetchColumn();
-    $_SESSION['dcoin_balance']=$newBal;
-    echo json_encode(['ok'=>true,'payment_method'=>'dcoin','item_name'=>$item['name'],'delivered_key'=>$key['key_code'],'new_balance'=>$newBal,'price_paid_dcoin'=>$price_dcoin]);
+function dg_purchase_out(array $payload, int $status = 200): void {
+    http_response_code($status);
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE);
     exit;
-  } else {
-    // cash — demo: direkt teslim, bakiye düşmez
-    $pdo->prepare("UPDATE store_keys SET is_used=1, used_by=?, used_at=NOW() WHERE id=?")->execute([$uid, $key['id']]);
-    $pdo->prepare("INSERT INTO purchases (user_id, store_item_id, store_key_id, payment_method, price_paid_tl, delivered_key) VALUES (?,?,?,?,?,?)")
-        ->execute([$uid, $item_id, $key['id'], 'cash', $price_tl, $key['key_code']]);
-    $pdo->prepare("UPDATE store_items SET stock = (SELECT COUNT(*) FROM store_keys WHERE store_item_id=? AND is_used=0) WHERE id=?")->execute([$item_id, $item_id]);
-    $pdo->commit();
-    $newBal = (int)$pdo->query("SELECT dcoin_balance FROM users WHERE id=$uid")->fetchColumn();
-    echo json_encode(['ok'=>true,'payment_method'=>'cash','item_name'=>$item['name'],'delivered_key'=>$key['key_code'],'new_balance'=>$newBal,'price_paid_tl'=>$price_tl]);
-    exit;
-  }
-
-}catch(Throwable $e){
-  if($pdo->inTransaction()) $pdo->rollBack();
-  error_log('[purchase] '.$e->getMessage());
-  echo json_encode(['ok'=>false,'error'=>'Satın alma sırasında hata: '.$e->getMessage()]);
 }
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    dg_purchase_out(['ok' => false, 'error' => 'Method not allowed'], 405);
+}
+
+$input = json_decode((string)file_get_contents('php://input'), true);
+if (!is_array($input)) $input = $_POST;
+
+if (!csrf_verify((string)($input['csrf'] ?? ''))) {
+    dg_purchase_out(['ok' => false, 'error' => 'CSRF doğrulaması başarısız'], 403);
+}
+if (!is_logged_in()) dg_purchase_out(['ok' => false, 'error' => 'Giriş yapmalısın'], 401);
+
+$user = current_user();
+if (!$user) dg_purchase_out(['ok' => false, 'error' => 'Giriş yapmalısın'], 401);
+if ((int)$user['is_banned'] === 1) dg_purchase_out(['ok' => false, 'error' => 'Hesabın engellenmiş'], 403);
+
+$uid = (int)$user['id'];
+$item_id = (int)($input['store_item_id'] ?? 0);
+$method = (string)($input['payment_method'] ?? '');
+if (!in_array($method, ['dcoin', 'cash'], true)) dg_purchase_out(['ok' => false, 'error' => 'Geçersiz ödeme yöntemi']);
+if ($item_id <= 0) dg_purchase_out(['ok' => false, 'error' => 'Geçersiz ürün']);
+
+try {
+    $result = dg_mutate(function (array &$data) use ($uid, $item_id, $method): array {
+        $userIndex = dg_index_of_id($data['users'], $uid);
+        if ($userIndex === null) return ['ok' => false, 'error' => 'Kullanıcı bulunamadı'];
+        if ((int)($data['users'][$userIndex]['is_banned'] ?? 0) === 1) {
+            return ['ok' => false, 'error' => 'Hesabın engellenmiş'];
+        }
+
+        $itemIndex = dg_index_of_id($data['store_items'], $item_id);
+        if ($itemIndex === null || (int)($data['store_items'][$itemIndex]['is_active'] ?? 0) !== 1) {
+            return ['ok' => false, 'error' => 'Ürün bulunamadı'];
+        }
+        $item = $data['store_items'][$itemIndex];
+
+        $keyIndex = null;
+        foreach ($data['store_keys'] as $i => $key) {
+            if ((int)($key['store_item_id'] ?? 0) === $item_id && (int)($key['is_used'] ?? 0) === 0) {
+                $keyIndex = (int)$i;
+                break;
+            }
+        }
+        if ($keyIndex === null) return ['ok' => false, 'error' => 'Üzgünüz, bu ürün stokta kalmadı'];
+
+        $priceTl = (float)($item['price_tl'] ?? 0);
+        $priceDcoin = (int)($item['price_dcoin'] ?? 0);
+        $balance = (int)($data['users'][$userIndex]['dcoin_balance'] ?? 0);
+
+        if ($method === 'dcoin') {
+            if ($priceDcoin <= 0) return ['ok' => false, 'error' => 'Bu ürün D-Coin ile alınamıyor'];
+            if ($balance < $priceDcoin) {
+                return ['ok' => false, 'error' => "Yetersiz D-Coin. Gerekli: $priceDcoin, bakiyen: $balance"];
+            }
+            $data['users'][$userIndex]['dcoin_balance'] = $balance - $priceDcoin;
+            $data['users'][$userIndex]['updated_at'] = dg_now();
+        }
+
+        $key = $data['store_keys'][$keyIndex];
+        $data['store_keys'][$keyIndex]['is_used'] = 1;
+        $data['store_keys'][$keyIndex]['used_by'] = $uid;
+        $data['store_keys'][$keyIndex]['used_at'] = dg_now();
+
+        $purchase = [
+            'id' => dg_next_id($data, 'purchases'),
+            'user_id' => $uid,
+            'store_item_id' => $item_id,
+            'store_key_id' => (int)$key['id'],
+            'item_name' => (string)$item['name'],
+            'payment_method' => $method,
+            'price_paid_tl' => $method === 'cash' ? $priceTl : null,
+            'price_paid_dcoin' => $method === 'dcoin' ? $priceDcoin : null,
+            'delivered_key' => (string)$key['key_code'],
+            'created_at' => dg_now(),
+        ];
+        $data['purchases'][] = $purchase;
+        dg_refresh_store_stock($data);
+
+        $newBalance = (int)$data['users'][$userIndex]['dcoin_balance'];
+        $out = [
+            'ok' => true,
+            'payment_method' => $method,
+            'item_name' => (string)$item['name'],
+            'delivered_key' => (string)$key['key_code'],
+            'new_balance' => $newBalance,
+        ];
+        if ($method === 'dcoin') $out['price_paid_dcoin'] = $priceDcoin;
+        else $out['price_paid_tl'] = $priceTl;
+        return $out;
+    });
+} catch (Throwable $e) {
+    error_log('[purchase] ' . $e->getMessage());
+    dg_purchase_out(['ok' => false, 'error' => 'Satın alma sırasında hata oluştu'], 500);
+}
+
+if (!empty($result['ok'])) {
+    $_SESSION['dcoin_balance'] = (int)$result['new_balance'];
+}
+dg_purchase_out($result, !empty($result['ok']) ? 200 : 400);

@@ -1,5 +1,13 @@
-# Gizli veritabani ayarlari (ornek: db_config.example.php)
-db_config.php
+# Calisma zamani verisi — her kurulumun kendi dosyasi vardir, repoya girmez
+storage/dg/database.json
+storage/dg/database.json.tmp.*
+storage/dg/database.lock
+storage/dg/*.bak
+
+# Gelistirme bagimliliklari (yerel onizleme)
+node_modules/
+
+# Ortam dosyalari
 .env
 
 # Hosting hata loglari
@@ -10,10 +18,11 @@ error_log
 uploads/*.mp4
 uploads/*.webm
 uploads/*.mov
+uploads/*.ogg
 !uploads/.htaccess
 !uploads/index.html
 
-# Gecici teshis dosyalari
-test_db.php
-hata_gor.php
-hata2.php
+# Gecici/eski teshis dosyalari
+/test_db.php
+/hata_gor.php
+/hata2.php

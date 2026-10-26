@@ -2,33 +2,66 @@
 require_once __DIR__ . '/_auth.php';
 require_once __DIR__ . '/_layout.php';
 
-// İstatistikler
-$total_users = (int)$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
-$total_admins = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE is_admin=1")->fetchColumn();
-$total_banned = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE is_banned=1")->fetchColumn();
-$total_dcoin_circulating = (int)$pdo->query("SELECT COALESCE(SUM(dcoin_balance),0) FROM users")->fetchColumn();
-$total_dcoin_distributed = (int)$pdo->query("SELECT COALESCE(SUM(earned_dcoin),0) FROM user_watch_logs")->fetchColumn();
-$total_watches = (int)$pdo->query("SELECT COUNT(*) FROM user_watch_logs")->fetchColumn();
-$total_purchases = (int)$pdo->query("SELECT COUNT(*) FROM purchases")->fetchColumn();
-$total_revenue_tl = $pdo->query("SELECT COALESCE(SUM(price_paid_tl),0) FROM purchases WHERE payment_method='cash'")->fetchColumn();
-$today_watches = (int)$pdo->query("SELECT COUNT(*) FROM user_watch_logs WHERE DATE(watched_at)=CURDATE()")->fetchColumn();
-$today_users = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE DATE(created_at)=CURDATE()")->fetchColumn();
-$active_ads = (int)$pdo->query("SELECT COUNT(*) FROM ads WHERE is_active=1")->fetchColumn();
-$active_products = (int)$pdo->query("SELECT COUNT(*) FROM store_items WHERE is_active=1")->fetchColumn();
+// İstatistikler — tamamı storage/dg/database.json dosyasından
+$data = dg_read_data();
+$users_all = $data['users'] ?? [];
+$watch_logs_all = $data['watch_logs'] ?? [];
+$purchases_all = $data['purchases'] ?? [];
+$today = date('Y-m-d');
+
+$total_users = count($users_all);
+$total_admins = 0;
+$total_banned = 0;
+$total_dcoin_circulating = 0;
+$today_users = 0;
+foreach ($users_all as $u) {
+  if ((int)($u['is_admin'] ?? 0) === 1) $total_admins++;
+  if ((int)($u['is_banned'] ?? 0) === 1) $total_banned++;
+  $total_dcoin_circulating += (int)($u['dcoin_balance'] ?? 0);
+  if (substr((string)($u['created_at'] ?? ''), 0, 10) === $today) $today_users++;
+}
+
+$total_dcoin_distributed = 0;
+$today_watches = 0;
+foreach ($watch_logs_all as $log) {
+  $total_dcoin_distributed += (int)($log['earned_dcoin'] ?? 0);
+  if (substr((string)($log['watched_at'] ?? ''), 0, 10) === $today) $today_watches++;
+}
+$total_watches = count($watch_logs_all);
+$total_purchases = count($purchases_all);
+$total_revenue_tl = 0.0;
+foreach ($purchases_all as $p) {
+  if (($p['payment_method'] ?? '') === 'cash') $total_revenue_tl += (float)($p['price_paid_tl'] ?? 0);
+}
+$active_ads = count(array_filter($data['ads'] ?? [], fn(array $a): bool => (int)($a['is_active'] ?? 0) === 1));
+$active_products = count(array_filter($data['store_items'] ?? [], fn(array $i): bool => (int)($i['is_active'] ?? 0) === 1));
 
 // Son hareketler
-$recent_watches = $pdo->query("SELECT l.*, u.username, a.title FROM user_watch_logs l JOIN users u ON u.id=l.user_id JOIN ads a ON a.id=l.ad_id ORDER BY l.watched_at DESC LIMIT 6")->fetchAll();
-$recent_purchases = $pdo->query("SELECT p.*, u.username, si.name FROM purchases p JOIN users u ON u.id=p.user_id JOIN store_items si ON si.id=p.store_item_id ORDER BY p.created_at DESC LIMIT 6")->fetchAll();
+$users_by_id = dg_index_by_id($users_all);
+$ads_by_id = dg_index_by_id($data['ads'] ?? []);
+$items_by_id = dg_index_by_id($data['store_items'] ?? []);
+$recent_watches = [];
+foreach (array_slice(dg_sort_newest($watch_logs_all, 'watched_at'), 0, 6) as $log) {
+  $log['username'] = $users_by_id[(int)$log['user_id']]['username'] ?? ('#' . (int)$log['user_id']);
+  $log['title'] = $ads_by_id[(int)$log['ad_id']]['title'] ?? ($log['ad_title'] ?? 'Silinmiş reklam');
+  $recent_watches[] = $log;
+}
+$recent_purchases = [];
+foreach (array_slice(dg_sort_newest($purchases_all, 'created_at'), 0, 6) as $purchase) {
+  $purchase['username'] = $users_by_id[(int)$purchase['user_id']]['username'] ?? ('#' . (int)$purchase['user_id']);
+  $purchase['name'] = $items_by_id[(int)$purchase['store_item_id']]['name'] ?? ($purchase['item_name'] ?? 'Silinmiş ürün');
+  $recent_purchases[] = $purchase;
+}
 
 // Ayar: günlük limit güncelleme
 if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['update_limit'])) {
   if (!csrf_verify($_POST['csrf'] ?? '')) { flash_error_set('CSRF hatası'); header('Location: index.php'); exit; }
   $new = max(1, min(50, (int)($_POST['daily_limit'] ?? 5)));
-  $pdo->prepare("INSERT INTO settings (skey,svalue) VALUES ('daily_watch_limit',?) ON DUPLICATE KEY UPDATE svalue=?")->execute([$new,$new]);
+  dg_set_daily_watch_limit($new);
   flash_set("Günlük limit $new olarak güncellendi.");
   header('Location: index.php'); exit;
 }
-$cur_limit = daily_watch_limit($pdo);
+$cur_limit = daily_watch_limit();
 
 admin_head('Dashboard');
 ?>
@@ -71,7 +104,7 @@ admin_head('Dashboard');
   <div class="dg-card">
     <div class="dg-card-head"><h2>📈 Sistem Durumu</h2><span class="dg-badge dg-badge-live">CANLI</span></div>
     <div class="dg-card-body" style="display:grid;gap:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(0,229,255,0.06);border:1px solid var(--line);border-radius:12px;padding:10px 14px"><span style="font-size:13px">Veritabanı</span><span style="font:700 11px JetBrains Mono,monospace;background:rgba(0,230,118,0.15);color:#7CFFB2;padding:5px 10px;border-radius:999px">● Bağlı</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(0,229,255,0.06);border:1px solid var(--line);border-radius:12px;padding:10px 14px"><span style="font-size:13px">Dosya Depolama</span><span style="font:700 11px JetBrains Mono,monospace;background:rgba(0,230,118,0.15);color:#7CFFB2;padding:5px 10px;border-radius:999px">● JSON Hazır</span></div>
       <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:12px;padding:10px 14px"><span style="font-size:13px">Anti-Cheat</span><span style="font:700 11px JetBrains Mono,monospace;background:rgba(0,229,255,0.12);color:var(--cyan);padding:5px 10px;border-radius:999px">🛡️ Aktif</span></div>
       <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:12px;padding:10px 14px"><span style="font-size:13px">PHP Sürümü</span><span class="dg-chip"><?=PHP_VERSION?></span></div>
     </div>
