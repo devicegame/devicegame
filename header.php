@@ -15,6 +15,15 @@ $full_title = isset($page_title) && $page_title !== ''
 $page_meta_desc = $page_meta_desc ?? $meta_desc;
 $cart_total_count = function_exists('cart_count') ? cart_count() : 0;
 
+// D-Coin hesabı eski menünün içinde gösterilir. db.php yüklenmeden açılan
+// eski sayfalarda da oturumdaki güncel bakiye bilgisi yeterli olur.
+$dg_auth_version = defined('DG_AUTH_VERSION') ? (int)DG_AUTH_VERSION : 3;
+$dg_logged = !empty($_SESSION['user_id'])
+    && (int)($_SESSION['dg_auth_v'] ?? 0) === $dg_auth_version;
+$dg_username = $dg_logged ? (string)($_SESSION['username'] ?? 'Hesabım') : '';
+$dg_balance = $dg_logged ? (int)($_SESSION['dcoin_balance'] ?? 0) : 0;
+$dg_is_admin = $dg_logged && (int)($_SESSION['is_admin'] ?? 0) === 1;
+
 function nav_link($file, $label, $current, $root = '') {
     $active = ($current === $file) ? ' aria-current="page"' : '';
     echo '<a href="' . htmlspecialchars($root . $file, ENT_QUOTES, 'UTF-8') . '" class="nav-item"' . $active . '>' . $label . '</a>';
@@ -51,9 +60,23 @@ function nav_link($file, $label, $current, $root = '') {
         <nav class="nav-links" aria-label="Ana menü">
             <?php nav_link('index.php', 'Ana sayfa', $current, $root); ?>
             <?php nav_link('shop.php', 'Mağaza', $current, $root); ?>
+            <a href="<?php echo e($root); ?>index.php#dcoin" class="nav-item">D-Coin</a>
             <?php nav_link('blog/index.php', 'Blog', $current, $root); ?>
             <?php nav_link('about.php', 'Vizyonumuz', $current, $root); ?>
             <?php nav_link('contact.php', 'İletişim', $current, $root); ?>
+            <?php if ($dg_logged): ?>
+                <?php if ($dg_is_admin): ?>
+                    <a href="<?php echo e($root); ?>admin/index.php" class="nav-item">Yönetim</a>
+                <?php endif; ?>
+                <span class="nav-account">
+                    <span class="nav-user"><?php echo e($dg_username); ?></span>
+                    <span class="nav-balance"><span data-live-balance><?php echo number_format($dg_balance, 0, ',', '.'); ?></span> D-Coin</span>
+                </span>
+                <a href="<?php echo e($root); ?>logout.php" class="nav-item">Çıkış</a>
+            <?php else: ?>
+                <a href="<?php echo e($root); ?>login.php" class="nav-item">Giriş</a>
+                <a href="<?php echo e($root); ?>register.php" class="nav-item">Kayıt ol</a>
+            <?php endif; ?>
         </nav>
         <a href="<?php echo e($root); ?>cart.php" class="nav-cta nav-cart<?php echo $current === 'cart.php' ? ' is-current' : ''; ?>">
             Sepet
@@ -63,7 +86,13 @@ function nav_link($file, $label, $current, $root = '') {
 </header>
 
 <?php if (!empty($_SESSION['flash'])): ?>
-    <?php $flash_text = (string)$_SESSION['flash']; unset($_SESSION['flash']); ?>
+    <?php
+        $flash_value = $_SESSION['flash'];
+        unset($_SESSION['flash']);
+        $flash_text = is_array($flash_value)
+            ? (string)($flash_value['msg'] ?? '')
+            : (string)$flash_value;
+    ?>
     <div class="flash" role="status" data-flash>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 12 5 5L20 6"/></svg>
         <?php echo e($flash_text); ?>

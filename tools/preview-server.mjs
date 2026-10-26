@@ -52,6 +52,25 @@ function syncDir(dir, rel = '') {
     }
 }
 
+/**
+ * Eski mağazanın repodaki aktif kataloğunu ilk açılışta sanal dosya sistemine al.
+ * storage/dg/ özellikle kopyalanmaz; D-Coin verileri önizleme sürecinde oluşur.
+ */
+let storageSeeded = false;
+function seedStorage() {
+    if (storageSeeded) return;
+    php.mkdirTree(path.posix.join(DOC_ROOT, 'storage'));
+    for (const name of ['products.json', 'slides.json', 'blog.json', '.htaccess', 'index.html']) {
+        const source = path.join(ROOT, 'storage', name);
+        if (!fs.existsSync(source)) continue;
+        php.writeFile(
+            path.posix.join(DOC_ROOT, 'storage', name),
+            new Uint8Array(fs.readFileSync(source))
+        );
+    }
+    storageSeeded = true;
+}
+
 let queue = Promise.resolve();
 function enqueue(task) {
     const run = queue.then(task, task);
@@ -78,6 +97,7 @@ const server = http.createServer(async (req, res) => {
 
     try {
         syncDir(ROOT);
+        seedStorage();
 
         const headers = {};
         for (const [key, value] of Object.entries(req.headers)) {

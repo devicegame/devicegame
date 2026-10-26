@@ -116,9 +116,25 @@ function tl_format($n): string {
     return number_format((float)$n, 2, ',', '.') . ' ₺';
 }
 
-/** Flash mesajlar */
-function flash_set(string $msg, string $type = 'success'): void { $_SESSION['flash'] = ['msg' => $msg, 'type' => $type]; }
-function flash_get(): ?array { $f = $_SESSION['flash'] ?? null; unset($_SESSION['flash']); return $f; }
+/**
+ * Flash mesajlar.
+ * Eski mağaza $_SESSION['flash'] alanını düz metin olarak kullanır; D-Coin
+ * tarafı bu alanla çakışmaması için kendi dg_flash anahtarında çalışır.
+ */
+function flash_set(string $msg, string $type = 'success'): void { $_SESSION['dg_flash'] = ['msg' => $msg, 'type' => $type]; }
+function flash_get(): ?array {
+    $f = $_SESSION['dg_flash'] ?? null;
+    unset($_SESSION['dg_flash']);
+    if (is_array($f)) return $f;
+
+    // Önceki sürümlerden kalan dizi biçimindeki flash kaydını da güvenle al.
+    if (isset($_SESSION['flash']) && is_array($_SESSION['flash'])) {
+        $f = $_SESSION['flash'];
+        unset($_SESSION['flash']);
+        return $f;
+    }
+    return null;
+}
 function flash_error_set(string $msg): void { $_SESSION['flash_error'] = $msg; }
 function flash_error_get(): ?string { $m = $_SESSION['flash_error'] ?? null; unset($_SESSION['flash_error']); return $m; }
 
@@ -135,69 +151,23 @@ function dg_seed_data(): array {
     $now = dg_now();
     $hash = '$2y$10$4ZK5MehAkI2ZYLCA1tB5K.PgMrc8A7XLtbBzbIqYcbhXDILtI9Y9G';
 
-    $items = [
-        [
-            'id' => 1, 'name' => 'Cyberpunk 2077 — Phantom Liberty (Steam)',
-            'description' => 'Steam key. Anında teslimat. Hesabınıza tanımlamaya hazır.',
-            'image_url' => 'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=600&q=80',
-            'price_tl' => 799.00, 'price_dcoin' => 120, 'stock' => 3, 'is_active' => 1,
-            'created_at' => $now, 'updated_at' => $now,
-        ],
-        [
-            'id' => 2, 'name' => 'Elden Ring — Deluxe Edition',
-            'description' => 'Bandai Namco resmi key. Tüm DLC’ler dahil.',
-            'image_url' => 'https://images.unsplash.com/photo-1538481199705-c710c4e965fc?w=600&q=80',
-            'price_tl' => 1299.00, 'price_dcoin' => 200, 'stock' => 2, 'is_active' => 1,
-            'created_at' => $now, 'updated_at' => $now,
-        ],
-        [
-            'id' => 3, 'name' => 'Valorant 1000 VP',
-            'description' => 'Riot hesabınıza anında yüklenir. Bölge: TR.',
-            'image_url' => 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=600&q=80',
-            'price_tl' => 349.00, 'price_dcoin' => 60, 'stock' => 4, 'is_active' => 1,
-            'created_at' => $now, 'updated_at' => $now,
-        ],
-        [
-            'id' => 4, 'name' => 'Discord Nitro — 1 Ay',
-            'description' => 'Hediye linki olarak teslim. Anında aktifleştirme.',
-            'image_url' => 'https://images.unsplash.com/photo-1612287230202-1ff1d85d1bdf?w=600&q=80',
-            'price_tl' => 149.00, 'price_dcoin' => 35, 'stock' => 2, 'is_active' => 1,
-            'created_at' => $now, 'updated_at' => $now,
-        ],
-        [
-            'id' => 5, 'name' => 'SteelSeries Mousepad — Device Edition',
-            'description' => 'Gamer mousepad, 400x450mm, kaymaz taban.',
-            'image_url' => 'https://images.unsplash.com/photo-1600861194942-f883de0dfe96?w=600&q=80',
-            'price_tl' => 299.00, 'price_dcoin' => 50, 'stock' => 1, 'is_active' => 1,
-            'created_at' => $now, 'updated_at' => $now,
-        ],
-    ];
-
+    // Mağaza ürünleri uydurma örneklerle değil, eski sitenin gerçek
+    // kataloğundan (storage/products.json) ilk açılışta içe aktarılır.
+    $items = [];
     $keyRows = [];
-    $keys = [
-        1 => ['CP77-PH-XXXX-AAAA-0001', 'CP77-PH-XXXX-AAAA-0002', 'CP77-PH-XXXX-AAAA-0003'],
-        2 => ['ELDEN-DLX-YYYY-BBBB-0001', 'ELDEN-DLX-YYYY-BBBB-0002'],
-        3 => ['VP-1000-TR-CCCC-0001', 'VP-1000-TR-CCCC-0002', 'VP-1000-TR-CCCC-0003', 'VP-1000-TR-CCCC-0004'],
-        4 => ['NITRO-1M-DDDD-0001', 'NITRO-1M-DDDD-0002'],
-        5 => ['MOUSEPAD-DEV-EEEE-0001'],
-    ];
-    $kid = 1;
-    foreach ($keys as $itemId => $codes) {
-        foreach ($codes as $code) {
-            $keyRows[] = [
-                'id' => $kid++, 'store_item_id' => $itemId, 'key_code' => $code,
-                'is_used' => 0, 'used_by' => null, 'used_at' => null, 'created_at' => $now,
-            ];
-        }
-    }
 
     return [
         'meta' => ['version' => 1, 'created_at' => $now, 'updated_at' => $now],
         'counters' => [
             'users' => 3, 'ads' => 4, 'watch_logs' => 1, 'watch_sessions' => 1,
-            'store_items' => 6, 'store_keys' => $kid, 'purchases' => 1,
+            'store_items' => 1, 'store_keys' => 1, 'purchases' => 1,
         ],
-        'settings' => ['daily_watch_limit' => 5, 'site_name' => 'DeviceGame'],
+        'settings' => [
+            'daily_watch_limit' => 5,
+            'site_name' => 'Device Game',
+            'legacy_catalog_hash' => '',
+            'legacy_seed_cleanup_v1' => 0,
+        ],
         'users' => [
             [
                 'id' => 1, 'username' => 'admin', 'email' => 'admin@devicegame.com',
@@ -212,19 +182,19 @@ function dg_seed_data(): array {
         ],
         'ads' => [
             [
-                'id' => 1, 'title' => 'Cyber Hunt — Tanıtım Fragmanı',
+                'id' => 1, 'title' => 'Device Game — Tanıtım Videosu',
                 'video_url' => 'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
                 'video_path' => null, 'thumbnail_url' => null, 'reward_dcoin' => 15,
                 'duration_sec' => 30, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now,
             ],
             [
-                'id' => 2, 'title' => 'Neon Drift — Oynanış Videosu',
+                'id' => 2, 'title' => 'Project: Overcharge — Oynanış Videosu',
                 'video_url' => 'https://storage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
                 'video_path' => null, 'thumbnail_url' => null, 'reward_dcoin' => 20,
                 'duration_sec' => 45, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now,
             ],
             [
-                'id' => 3, 'title' => 'Project Overcharge — Teaser',
+                'id' => 3, 'title' => 'Mağaza Seçkisi — Kısa Tanıtım',
                 'video_url' => 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
                 'video_path' => null, 'thumbnail_url' => null, 'reward_dcoin' => 10,
                 'duration_sec' => 20, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now,
@@ -358,8 +328,13 @@ function dg_ensure_storage(): void {
     if (!is_file($index)) @file_put_contents($index, '');
 
     if (!is_file(DG_DATA_FILE)) {
-        dg_mutate(function (array &$data): void {
-            // Dosya yoksa dg_read_data(true) seed döner; kilit altında olduğu gibi yazılır.
+        $legacyCatalog = dg_legacy_catalog_from_files();
+        dg_mutate(function (array &$data) use ($legacyCatalog): void {
+            // Dosya yoksa dg_read_data(true) seed döner; eski mağaza kataloğu
+            // ilk veri dosyasıyla birlikte kilit altında içe aktarılır.
+            if ($legacyCatalog) {
+                dg_apply_legacy_catalog($data, $legacyCatalog);
+            }
         });
     } elseif (!is_readable(DG_DATA_FILE) || !is_writable(DG_DATA_FILE)) {
         throw new RuntimeException('storage/dg/database.json okunabilir/yazılabilir değil. Dosya iznini 644/664 yapın.');
@@ -543,8 +518,26 @@ function today_watch_count(int $user_id, ?array $data = null): int {
     return $count;
 }
 
-/** Bir ürün için boşta/kullanılmış key sayılarını hesaplar. */
+/** Bir ürünün stok kipini döner: keys (tek tek key) veya quantity (adet). */
+function dg_store_stock_mode(array $item): string {
+    return (($item['stock_mode'] ?? 'keys') === 'quantity') ? 'quantity' : 'keys';
+}
+
+/**
+ * Bir ürün için kullanılabilir/kullanılmış stok sayılarını hesaplar.
+ * Key kipinde gerçek key satırları, adet kipinde ürünün stock alanı esastır.
+ */
 function dg_store_key_counts(array $data, int $itemId): array {
+    $item = dg_find_by_id($data['store_items'] ?? [], $itemId);
+    if ($item && dg_store_stock_mode($item) === 'quantity') {
+        $used = 0;
+        foreach ($data['purchases'] ?? [] as $purchase) {
+            if ((int)($purchase['store_item_id'] ?? 0) === $itemId) $used++;
+        }
+        $avail = max(0, (int)($item['stock'] ?? 0));
+        return ['avail' => $avail, 'used' => $used, 'keys_left' => $avail];
+    }
+
     $avail = 0; $used = 0;
     foreach ($data['store_keys'] ?? [] as $key) {
         if ((int)($key['store_item_id'] ?? 0) !== $itemId) continue;
@@ -553,9 +546,13 @@ function dg_store_key_counts(array $data, int $itemId): array {
     return ['avail' => $avail, 'used' => $used, 'keys_left' => $avail];
 }
 
-/** Ürünlerin stock alanını gerçek key sayısına göre tazeler. */
+/** Key kipindeki ürünlerin stock alanını gerçek key sayısına göre tazeler. */
 function dg_refresh_store_stock(array &$data): void {
     foreach ($data['store_items'] as $i => $item) {
+        if (dg_store_stock_mode($item) === 'quantity') {
+            $data['store_items'][$i]['stock'] = max(0, (int)($item['stock'] ?? 0));
+            continue;
+        }
         $counts = dg_store_key_counts($data, (int)$item['id']);
         $data['store_items'][$i]['stock'] = $counts['avail'];
     }
@@ -565,12 +562,228 @@ function dg_refresh_store_stock(array &$data): void {
 function dg_enrich_store_items(array $data, array $items): array {
     $out = [];
     foreach ($items as $item) {
-        $item += ['description' => '', 'image_url' => '', 'price_tl' => 0, 'price_dcoin' => 0, 'is_active' => 0];
+        $item += [
+            'description' => '', 'image_url' => '', 'price_tl' => 0, 'price_dcoin' => 0,
+            'is_active' => 0, 'stock' => 0, 'stock_mode' => 'keys', 'legacy_slug' => null,
+        ];
         $item = array_merge($item, dg_store_key_counts($data, (int)$item['id']));
         $item['stock'] = $item['avail'];
         $out[] = $item;
     }
     return $out;
+}
+
+/** Eski mağaza ürünleri ilk kez içe aktarılırken kullanılacak D-Coin karşılığı. */
+function dg_legacy_dcoin_price(float $priceTl): int {
+    return max(1, (int)round($priceTl / 6));
+}
+
+/** Eski kataloğun değişip değişmediğini anlamak için içerik özeti. */
+function dg_legacy_catalog_hash(array $products): string {
+    $json = json_encode($products, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    return hash('sha256', $json === false ? '' : $json);
+}
+
+/**
+ * Eski mağaza kataloğunu dosyalardan okur. lib/shop.php yüklenmemişken,
+ * ilk kurulumda ve admin açılışında da kullanılabilmesi için bağımsızdır.
+ */
+function dg_legacy_catalog_from_files(): array {
+    $jsonFile = __DIR__ . '/storage/products.json';
+    if (is_file($jsonFile)) {
+        $decoded = json_decode((string)@file_get_contents($jsonFile), true);
+        if (is_array($decoded)) return $decoded;
+    }
+
+    $phpFile = __DIR__ . '/data/products.php';
+    if (is_file($phpFile)) {
+        $rows = include $phpFile;
+        if (is_array($rows)) return $rows;
+    }
+    return [];
+}
+
+/**
+ * Eski mağaza kataloğunu D-Coin mağazasına uygular.
+ * - Ürün adı, açıklama, görsel ve TL fiyat eski katalogdan gelir.
+ * - D-Coin fiyatı yalnızca ilk aktarımda önerilir; admin'in fiyatı ezilmez.
+ * - Eski stok değişimi fark olarak uygulanır; satışla azalan stok geri sıçramaz.
+ * - Eski katalogdan silinen ürün D-Coin vitrininden kaldırılır, kaydı silinmez.
+ */
+function dg_apply_legacy_catalog(array &$data, array $products): bool {
+    $hash = dg_legacy_catalog_hash($products);
+    $cleanupDone = !empty($data['settings']['legacy_seed_cleanup_v1']);
+    if (($data['settings']['legacy_catalog_hash'] ?? '') === $hash && $cleanupDone) {
+        return false;
+    }
+
+    $now = dg_now();
+    $seenSlugs = [];
+
+    foreach ($products as $product) {
+        if (!is_array($product)) continue;
+        $slug = trim((string)($product['slug'] ?? ''));
+        $name = trim((string)($product['name'] ?? ''));
+        if ($slug === '' || $name === '') continue;
+        $seenSlugs[$slug] = true;
+
+        $description = trim((string)($product['desc'] ?? $product['description'] ?? $product['subtitle'] ?? ''));
+        $image = trim((string)($product['image'] ?? $product['image_url'] ?? ''));
+        $priceTl = max(0, (float)($product['price'] ?? $product['price_tl'] ?? 0));
+        $legacyStock = max(0, (int)($product['stock'] ?? 0));
+        $oldPrice = $product['old_price'] ?? null;
+        $legacyMeta = [
+            'legacy_slug' => $slug,
+            'legacy_subtitle' => (string)($product['subtitle'] ?? ''),
+            'legacy_category' => (string)($product['category'] ?? 'key'),
+            'legacy_platform' => (string)($product['platform'] ?? 'PC'),
+            'legacy_old_price' => ($oldPrice === null || $oldPrice === '') ? null : (float)$oldPrice,
+            'legacy_badge' => empty($product['badge']) ? null : (string)$product['badge'],
+            'legacy_order' => (int)($product['order'] ?? 0),
+        ];
+
+        $itemIndex = null;
+        foreach ($data['store_items'] as $i => $item) {
+            if ((string)($item['legacy_slug'] ?? '') === $slug) {
+                $itemIndex = (int)$i;
+                break;
+            }
+        }
+        if ($itemIndex === null) {
+            foreach ($data['store_items'] as $i => $item) {
+                if (empty($item['legacy_slug']) && dg_casefold((string)($item['name'] ?? '')) === dg_casefold($name)) {
+                    $itemIndex = (int)$i;
+                    break;
+                }
+            }
+        }
+
+        if ($itemIndex === null) {
+            $data['store_items'][] = array_merge([
+                'id' => dg_next_id($data, 'store_items'),
+                'name' => $name,
+                'description' => $description,
+                'image_url' => $image,
+                'price_tl' => $priceTl,
+                'price_dcoin' => dg_legacy_dcoin_price($priceTl),
+                'stock' => $legacyStock,
+                'stock_mode' => 'quantity',
+                'legacy_stock_snapshot' => $legacyStock,
+                'legacy_price_snapshot' => $priceTl,
+                'is_active' => 1,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ], $legacyMeta);
+            continue;
+        }
+
+        $item = $data['store_items'][$itemIndex];
+        $previousPriceSnapshot = isset($item['legacy_price_snapshot']) ? (float)$item['legacy_price_snapshot'] : null;
+        $currentDcoin = (int)($item['price_dcoin'] ?? 0);
+        if ($currentDcoin <= 0) {
+            $currentDcoin = dg_legacy_dcoin_price($priceTl);
+        } elseif ($previousPriceSnapshot !== null
+            && $currentDcoin === dg_legacy_dcoin_price($previousPriceSnapshot)) {
+            // Admin özel bir D-Coin fiyatı vermemişse önerilen karşılığı koru.
+            $currentDcoin = dg_legacy_dcoin_price($priceTl);
+        }
+
+        // İlk aktarım adet stokla başlar. Admin gerçek keylerle çalışmak için
+        // key kipine geçtiyse katalog eşitlemesi bu seçimi geri almaz.
+        $stockMode = array_key_exists('stock_mode', $item)
+            ? dg_store_stock_mode($item)
+            : 'quantity';
+        if ($stockMode === 'quantity') {
+            if (!array_key_exists('legacy_stock_snapshot', $item)) {
+                $stock = $legacyStock;
+            } else {
+                $stockDelta = $legacyStock - (int)$item['legacy_stock_snapshot'];
+                $stock = max(0, (int)($item['stock'] ?? 0) + $stockDelta);
+            }
+            $stockSnapshot = $legacyStock;
+        } else {
+            // Key kipinde kullanılabilir stok, dg_refresh_store_stock() ile
+            // gerçek key satırlarından yeniden hesaplanır.
+            $stock = (int)($item['stock'] ?? 0);
+            $stockSnapshot = (int)($item['legacy_stock_snapshot'] ?? $legacyStock);
+        }
+
+        $data['store_items'][$itemIndex] = array_merge($item, $legacyMeta, [
+            'name' => $name,
+            'description' => $description,
+            'image_url' => $image,
+            'price_tl' => $priceTl,
+            'price_dcoin' => $currentDcoin,
+            'stock' => $stock,
+            'stock_mode' => $stockMode,
+            'legacy_stock_snapshot' => $stockSnapshot,
+            'legacy_price_snapshot' => $priceTl,
+            'updated_at' => $now,
+        ]);
+    }
+
+    foreach ($data['store_items'] as $i => $item) {
+        $slug = (string)($item['legacy_slug'] ?? '');
+        if ($slug !== '' && empty($seenSlugs[$slug])) {
+            $data['store_items'][$i]['is_active'] = 0;
+            $data['store_items'][$i]['updated_at'] = $now;
+        }
+    }
+
+    if (!$cleanupDone) {
+        // Önceki sürümün örnek video başlıklarını sitenin kendi diliyle değiştir.
+        $sampleAdTitles = [
+            'Cyber Hunt — Tanıtım Fragmanı' => 'Device Game — Tanıtım Videosu',
+            'Neon Drift — Oynanış Videosu' => 'Project: Overcharge — Oynanış Videosu',
+            'Project Overcharge — Teaser' => 'Mağaza Seçkisi — Kısa Tanıtım',
+        ];
+        foreach ($data['ads'] as $i => $ad) {
+            $title = (string)($ad['title'] ?? '');
+            if (isset($sampleAdTitles[$title])) {
+                $data['ads'][$i]['title'] = $sampleAdTitles[$title];
+                $data['ads'][$i]['updated_at'] = $now;
+            }
+        }
+        if (($data['settings']['site_name'] ?? '') === 'DeviceGame') {
+            $data['settings']['site_name'] = 'Device Game';
+        }
+
+        // Önceki sürümün örnek ürünleri eski sitenin kataloğunda yoktu.
+        // Satış geçmişini korumak için silmek yerine vitrinden kaldırılır.
+        $sampleNames = [
+            'Cyberpunk 2077 — Phantom Liberty (Steam)' => true,
+            'Elden Ring — Deluxe Edition' => true,
+            'Valorant 1000 VP' => true,
+            'Discord Nitro — 1 Ay' => true,
+            'SteelSeries Mousepad — Device Edition' => true,
+        ];
+        foreach ($data['store_items'] as $i => $item) {
+            if (empty($item['legacy_slug']) && isset($sampleNames[(string)($item['name'] ?? '')])) {
+                $data['store_items'][$i]['is_active'] = 0;
+                $data['store_items'][$i]['retired_seed_item'] = 1;
+                $data['store_items'][$i]['updated_at'] = $now;
+            }
+        }
+    }
+
+    $data['settings']['legacy_catalog_hash'] = $hash;
+    $data['settings']['legacy_seed_cleanup_v1'] = 1;
+    dg_refresh_store_stock($data);
+    return true;
+}
+
+/** Eski kataloğu yalnızca değişmişse kilitli yazma ile eşitler. */
+function dg_sync_legacy_products(array $products): bool {
+    if (!$products) return false;
+    $hash = dg_legacy_catalog_hash($products);
+    $data = dg_read_data();
+    if (($data['settings']['legacy_catalog_hash'] ?? '') === $hash
+        && !empty($data['settings']['legacy_seed_cleanup_v1'])) {
+        return false;
+    }
+    return (bool)dg_mutate(function (array &$fresh) use ($products): bool {
+        return dg_apply_legacy_catalog($fresh, $products);
+    });
 }
 
 // ——— İlk kurulum ———
@@ -587,9 +800,9 @@ try {
     if (PHP_SAPI !== 'cli' && !headers_sent()) {
         http_response_code(503);
         $safe = htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8');
-        die('<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Depolama Ayarı — DeviceGame</title>'
-            . '<style>body{margin:0;background:#070A14;color:#EAF0FF;font-family:system-ui;padding:24px;line-height:1.65}.card{max-width:760px;margin:40px auto;background:#0F1428;border:1px solid rgba(0,229,255,.2);border-radius:18px;padding:24px}code{background:rgba(255,255,255,.08);padding:2px 7px;border-radius:6px}a{color:#00E5FF}pre{white-space:pre-wrap;background:#070A14;padding:14px;border-radius:12px}</style></head><body><div class="card">'
-            . '<h1>◉ DeviceGame — Depolama klasörü hazır değil</h1>'
+        die('<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Depolama Ayarı — Device Game</title>'
+            . '<style>body{margin:0;background:#0A1A15;color:#E8EBE4;font-family:system-ui;padding:24px;line-height:1.65}.card{max-width:760px;margin:40px auto;background:#112A21;border:1px solid rgba(190,225,208,.2);border-radius:18px;padding:24px}code{background:rgba(255,255,255,.08);padding:2px 7px;border-radius:6px}a{color:#4FE0A0}pre{white-space:pre-wrap;background:#0A1A15;padding:14px;border-radius:12px}</style></head><body><div class="card">'
+            . '<h1>Device Game — Depolama klasörü hazır değil</h1>'
             . '<p>Bu sürüm MySQL kullanmaz. Sadece <code>storage/dg/</code> klasörünün PHP tarafından yazılabilmesi gerekir.</p>'
             . '<pre>' . $safe . '</pre>'
             . '<ol><li>File Manager/FTP ile <code>storage</code> ve varsa <code>storage/dg</code> izinlerini <b>755</b> veya <b>775</b> yapın.</li>'

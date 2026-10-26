@@ -1,6 +1,6 @@
 <?php
 /**
- * diagnose.php — DeviceGame Veritabansız Sistem Teşhisi v3
+ * diagnose.php — Device Game Veritabansız Sistem Teşhisi v3
  * ---------------------------------------------------------------
  * Aç: siteadın.com/diagnose.php
  * MySQL/PDO kontrolü yoktur; JSON depolama, izinler ve dosyalar denetlenir.
@@ -13,7 +13,7 @@ declare(strict_types=1);
 if (isset($_GET['sil']) && $_GET['sil'] === '1') {
     @unlink(__FILE__);
     header('Content-Type: text/html; charset=utf-8');
-    die('<!doctype html><meta charset="utf-8"><body style="background:#070A14;color:#EAF0FF;font-family:system-ui;padding:2rem"><h1>✅ diagnose.php silindi</h1><p>Kurulum tamam. <a style="color:#00E5FF" href="index.php">Siteye git →</a></p></body>');
+    die('<!doctype html><meta charset="utf-8"><body style="background:#0A1A15;color:#E8EBE4;font-family:system-ui;padding:2rem"><h1>✅ diagnose.php silindi</h1><p>Kurulum tamam. <a style="color:#4FE0A0" href="index.php">Siteye git →</a></p></body>');
 }
 
 error_reporting(E_ALL);
@@ -50,19 +50,19 @@ function dg_diag_bad_htaccess_directives(string $content): array {
 ?>
 <!doctype html>
 <html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Teşhis — DeviceGame (Veritabansız)</title>
+<title>Teşhis — Device Game (Veritabansız)</title>
 <style>
-body{background:#070A14;color:#EAF0FF;font-family:system-ui,-apple-system,sans-serif;padding:24px;line-height:1.65;max-width:920px;margin:0 auto}
-h1{color:#00E5FF;font-size:22px} h2{color:#8B95B5;font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-top:26px}
-pre{background:#0F1428;border:1px solid rgba(0,229,255,.15);padding:14px;border-radius:12px;overflow:auto;white-space:pre-wrap;word-break:break-all;font-size:12.5px}
-.ok{color:#00E676}.bad{color:#FF2A6D}.warn{color:#FFD60A}
+body{background:#0A1A15;color:#E8EBE4;font-family:system-ui,-apple-system,sans-serif;padding:24px;line-height:1.65;max-width:920px;margin:0 auto}
+h1{color:#4FE0A0;font-size:22px} h2{color:#93A89E;font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-top:26px}
+pre{background:#112A21;border:1px solid rgba(79,224,160,.15);padding:14px;border-radius:12px;overflow:auto;white-space:pre-wrap;word-break:break-all;font-size:12.5px}
+.ok{color:#4FE0A0}.bad{color:#E0607A}.warn{color:#F4C15D}
 code{background:rgba(255,255,255,.08);padding:2px 6px;border-radius:6px}
-a{color:#00E5FF}.card{background:#0F1428;border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:16px;margin:10px 0}
-.danger{background:rgba(255,42,109,.1);border:1px solid rgba(255,42,109,.35);border-radius:16px;padding:16px;margin:14px 0}
-.btn{display:inline-block;background:linear-gradient(135deg,#FF2A6D,#7B2DFF);color:#fff;padding:10px 16px;border-radius:12px;text-decoration:none;font-weight:700}
+a{color:#4FE0A0}.card{background:#112A21;border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:16px;margin:10px 0}
+.danger{background:rgba(224,96,122,.1);border:1px solid rgba(224,96,122,.35);border-radius:16px;padding:16px;margin:14px 0}
+.btn{display:inline-block;background:linear-gradient(135deg,#E0607A,#17362B);color:#fff;padding:10px 16px;border-radius:12px;text-decoration:none;font-weight:700}
 </style></head><body>
-<h1>◉ DeviceGame — Veritabansız Sistem Teşhisi</h1>
-<p style="color:#8B95B5">Bu sürüm MySQL kullanmaz. Veriler <code>storage/dg/database.json</code> içinde tutulur. Bu sayfa yalnızca PHP, dosyalar, izinler ve JSON bütünlüğünü kontrol eder.</p>
+<h1>Device Game — Veritabansız Sistem Teşhisi</h1>
+<p style="color:#93A89E">Bu sürüm MySQL kullanmaz. Veriler <code>storage/dg/database.json</code> içinde tutulur. Bu sayfa yalnızca PHP, dosyalar, izinler ve JSON bütünlüğünü kontrol eder.</p>
 
 <div class="danger"><b>⚠️ Kurulum bitince bu dosyayı sil:</b> <a class="btn" href="diagnose.php?sil=1">diagnose.php kendini silsin →</a></div>
 
@@ -92,7 +92,10 @@ if (!extension_loaded('json')) $bad('JSON eklentisi kapalı. Hosting panelinden 
 echo '<h2>2. Gerekli Dosyalar</h2><pre>';
 $required = [
     'db.php', 'index.php', 'login.php', 'register.php', 'auth.php', 'logout.php',
-    'assets/css/devicegame.css', 'admin/index.php', 'admin/ads.php', 'admin/users.php',
+    'config.php', 'header.php', 'footer.php', 'style.css', 'shop.css', 'script.js',
+    'lib/shop.php', 'partials/slider.php', 'storage/products.json',
+    'assets/css/devicegame.css', 'assets/css/dcoin.css', 'assets/js/dcoin.js',
+    'admin/index.php', 'admin/ads.php', 'admin/users.php',
     'admin/store.php', 'admin/logs.php', 'api/watch_start.php', 'api/watch_complete.php', 'api/purchase.php',
     'storage/.htaccess', 'storage/dg/.htaccess', 'uploads/.htaccess', 'uploads/index.html',
 ];
@@ -220,6 +223,6 @@ echo '<h2>Sonuç</h2><div class="card">'
    . 'Kritik maddeler ✅ ise <a href="index.php">index.php</a> açılmalı. Gerçek hatayı anlık görmek için: <a href="index.php?debug=1">index.php?debug=1</a><br>'
    . '500 devam ediyorsa 8. bölümdeki son "PHP Fatal error" satırı gerçek sebeptir. Veritabanı/MySQL/phpMyAdmin adımı yoktur.'
    . '</div>';
-echo '<p style="color:#5A6585;font-size:12px;margin-top:20px">İşin bitince: <a href="diagnose.php?sil=1">bu dosyayı sil</a> • DeviceGame diagnose v3 (database-less)</p>';
+echo '<p style="color:#6E8579;font-size:12px;margin-top:20px">İşin bitince: <a href="diagnose.php?sil=1">bu dosyayı sil</a> • DeviceGame diagnose v3 (database-less)</p>';
 ?>
 </body></html>

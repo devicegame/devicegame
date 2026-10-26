@@ -110,7 +110,7 @@ admin_head('Reklam Yönetimi');
 <div style="display:flex;align-items:end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px">
   <div>
     <p class="dg-kicker">ADS // VIDEO MANAGEMENT</p>
-    <h1 style="font-family:Orbitron,monospace;font-weight:800;font-size:22px">Reklam Yönetimi</h1>
+    <h1 style="font-family:Bricolage Grotesque,sans-serif;font-weight:800;font-size:22px">Reklam Yönetimi</h1>
     <p class="dg-muted" style="font-size:13px">Video ekle, düzenle, duraklat. Scrubbing zaten yasak — anti-cheat korunuyor.</p>
   </div>
   <span class="dg-badge"><?=count($ads)?> REKLAM</span>
@@ -145,13 +145,13 @@ admin_head('Reklam Yönetimi');
     <?php else: ?>
     <div style="display:flex;flex-direction:column;gap:10px;padding:14px">
       <?php foreach($ads as $a): ?>
-        <div style="display:flex;gap:12px;align-items:center;background:var(--card2);border:1px solid <?= $a['is_active'] ? 'rgba(0,229,255,0.18)' : 'var(--line)' ?>;border-radius:14px;padding:12px">
+        <div style="display:flex;gap:12px;align-items:center;background:var(--card2);border:1px solid <?= $a['is_active'] ? 'rgba(79,224,160,0.18)' : 'var(--line)' ?>;border-radius:14px;padding:12px">
           <div style="width:84px;height:48px;border-radius:10px;overflow:hidden;background:#000;flex-shrink:0">
             <video src="<?=e($a['video_url'])?>" muted preload="metadata" style="width:100%;height:100%;object-fit:cover"></video>
           </div>
           <div style="flex:1;min-width:0">
             <b style="font-size:13px"><?=e($a['title'])?></b>
-            <div style="font:500 11px JetBrains Mono,monospace;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ID #<?= (int)$a['id'] ?> • <?= (int)$a['reward_dcoin'] ?> D-Coin • <?= (int)$a['duration_sec'] ?>s • <?=e($a['video_url'])?></div>
+            <div style="font:500 11px Instrument Sans,sans-serif;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ID #<?= (int)$a['id'] ?> • <?= (int)$a['reward_dcoin'] ?> D-Coin • <?= (int)$a['duration_sec'] ?>s • <?=e($a['video_url'])?></div>
             <div style="margin-top:6px;display:flex;gap:6px">
               <span class="dg-chip <?= $a['is_active']?'on':'' ?>"><?= $a['is_active']?'● Aktif':'○ Pasif' ?></span>
               <span class="dg-chip"><?=e($a['created_at'])?></span>
@@ -160,7 +160,7 @@ admin_head('Reklam Yönetimi');
           <div style="display:flex;flex-direction:column;gap:6px">
             <a href="ads.php?edit=<?= (int)$a['id'] ?>" class="dg-btn dg-btn-ghost dg-btn-sm" style="font-size:11px">Düzenle</a>
             <form method="post" style="margin:0"><?=csrf_field()?><input type="hidden" name="id" value="<?= (int)$a['id'] ?>"><button name="toggle_ad" class="dg-btn <?= $a['is_active']?'dg-btn-ghost':'dg-btn-primary' ?> dg-btn-sm" style="font-size:11px;width:100%"><?= $a['is_active']?'Duraklat':'Aktifleştir' ?></button></form>
-            <form method="post" style="margin:0" onsubmit="return confirm('Silinsin mi?')"><?=csrf_field()?><input type="hidden" name="id" value="<?= (int)$a['id'] ?>"><button name="delete_ad" class="dg-btn dg-btn-ghost dg-btn-sm" style="font-size:11px;width:100%;color:var(--magenta);border-color:rgba(255,42,109,0.25)">Sil</button></form>
+            <form method="post" style="margin:0" onsubmit="return confirm('Silinsin mi?')"><?=csrf_field()?><input type="hidden" name="id" value="<?= (int)$a['id'] ?>"><button name="delete_ad" class="dg-btn dg-btn-ghost dg-btn-sm" style="font-size:11px;width:100%;color:var(--magenta);border-color:rgba(224,96,122,0.25)">Sil</button></form>
           </div>
         </div>
       <?php endforeach; ?>

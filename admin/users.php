@@ -83,7 +83,7 @@ admin_head('Kullanıcı Yönetimi');
 <div style="display:flex;align-items:end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px">
   <div>
     <p class="dg-kicker">USERS // MANAGEMENT</p>
-    <h1 style="font-family:Orbitron,monospace;font-weight:800;font-size:22px">Kullanıcı Yönetimi</h1>
+    <h1 style="font-family:Bricolage Grotesque,sans-serif;font-weight:800;font-size:22px">Kullanıcı Yönetimi</h1>
     <p class="dg-muted" style="font-size:13px">Ara, D-Coin ekle/çıkar, banla veya admin yap.</p>
   </div>
   <span class="dg-badge"><?=$total?> KULLANICI</span>
@@ -109,18 +109,18 @@ admin_head('Kullanıcı Yönetimi');
     <?php foreach($users as $u): ?>
       <tr>
         <td><span class="dg-chip">#<?= (int)$u['id'] ?></span></td>
-        <td><b><?=e($u['username'])?></b> <?= (int)$u['is_admin']?'<span style="background:linear-gradient(135deg,var(--cyan),var(--purple));color:#fff;font:700 9px JetBrains Mono,monospace;padding:3px 7px;border-radius:999px">ADMIN</span>':'' ?></td>
+        <td><b><?=e($u['username'])?></b> <?= (int)$u['is_admin']?'<span style="background:linear-gradient(135deg,var(--cyan),var(--purple));color:#fff;font:700 9px Instrument Sans,sans-serif;padding:3px 7px;border-radius:999px">ADMIN</span>':'' ?></td>
         <td style="color:var(--muted);font-size:12px"><?=e($u['email'])?></td>
-        <td><span style="background:linear-gradient(135deg,#FFD60A,#FF8C00);color:#1a1200;font:800 12px JetBrains Mono,monospace;padding:5px 10px;border-radius:999px"><?=number_format((int)$u['dcoin_balance'])?> ◈</span></td>
-        <td><?php if((int)$u['is_banned']): ?><span style="background:rgba(255,42,109,0.15);color:#FF8FAF;font:700 10px JetBrains Mono,monospace;padding:5px 9px;border-radius:999px;border:1px solid rgba(255,42,109,0.3)">BANLI</span><?php else: ?><span style="background:rgba(0,230,118,0.12);color:#7CFFB2;font:700 10px JetBrains Mono,monospace;padding:5px 9px;border-radius:999px;border:1px solid rgba(0,230,118,0.2)">Aktif</span><?php endif; ?></td>
+        <td><span style="background:linear-gradient(135deg,#F4C15D,#C4644A);color:#1a1200;font:800 12px Instrument Sans,sans-serif;padding:5px 10px;border-radius:999px"><?=number_format((int)$u['dcoin_balance'])?> ◈</span></td>
+        <td><?php if((int)$u['is_banned']): ?><span style="background:rgba(224,96,122,0.15);color:#F0A6B7;font:700 10px Instrument Sans,sans-serif;padding:5px 9px;border-radius:999px;border:1px solid rgba(224,96,122,0.3)">BANLI</span><?php else: ?><span style="background:rgba(79,224,160,0.12);color:#A7F3C9;font:700 10px Instrument Sans,sans-serif;padding:5px 9px;border-radius:999px;border:1px solid rgba(79,224,160,0.2)">Aktif</span><?php endif; ?></td>
         <td><small class="dg-mini"><?=e($u['created_at'])?></small></td>
         <td>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <!-- D-Coin form -->
             <form method="post" style="display:flex;gap:4px;align-items:center;background:rgba(255,255,255,0.04);border:1px solid var(--line);border-radius:10px;padding:4px 6px">
               <?=csrf_field()?><input type="hidden" name="user_id" value="<?= (int)$u['id'] ?>">
-              <input type="number" name="amount" placeholder="±" style="width:70px;background:rgba(255,255,255,0.06);border:1px solid var(--line);color:var(--text);padding:6px 8px;border-radius:8px;font:600 12px JetBrains Mono,monospace">
-              <input type="text" name="reason" placeholder="neden?" style="width:90px;background:rgba(255,255,255,0.06);border:1px solid var(--line);color:var(--text);padding:6px 8px;border-radius:8px;font:500 11px Inter">
+              <input type="number" name="amount" placeholder="±" style="width:70px;background:rgba(255,255,255,0.06);border:1px solid var(--line);color:var(--text);padding:6px 8px;border-radius:8px;font:600 12px Instrument Sans,sans-serif">
+              <input type="text" name="reason" placeholder="neden?" style="width:90px;background:rgba(255,255,255,0.06);border:1px solid var(--line);color:var(--text);padding:6px 8px;border-radius:8px;font:500 11px Instrument Sans,sans-serif">
               <button name="adjust_coin" class="dg-btn dg-btn-primary" style="padding:6px 10px;font-size:11px">Uygula</button>
             </form>
             <form method="post" style="margin:0"><?=csrf_field()?><input type="hidden" name="user_id" value="<?= (int)$u['id'] ?>"><button name="toggle_ban" class="dg-btn dg-btn-ghost dg-btn-sm" style="font-size:11px;<?= (int)$u['is_banned']?'color:var(--green)':'color:var(--magenta)' ?>"><?= (int)$u['is_banned']?'Unban':'Ban' ?></button></form>

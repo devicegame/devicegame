@@ -45,14 +45,19 @@ try {
         }
         $item = $data['store_items'][$itemIndex];
 
+        $stockMode = dg_store_stock_mode($item);
         $keyIndex = null;
-        foreach ($data['store_keys'] as $i => $key) {
-            if ((int)($key['store_item_id'] ?? 0) === $item_id && (int)($key['is_used'] ?? 0) === 0) {
-                $keyIndex = (int)$i;
-                break;
+        if ($stockMode === 'keys') {
+            foreach ($data['store_keys'] as $i => $keyRow) {
+                if ((int)($keyRow['store_item_id'] ?? 0) === $item_id && (int)($keyRow['is_used'] ?? 0) === 0) {
+                    $keyIndex = (int)$i;
+                    break;
+                }
             }
+            if ($keyIndex === null) return ['ok' => false, 'error' => 'Üzgünüz, bu ürün stokta kalmadı'];
+        } elseif ((int)($item['stock'] ?? 0) <= 0) {
+            return ['ok' => false, 'error' => 'Üzgünüz, bu ürün stokta kalmadı'];
         }
-        if ($keyIndex === null) return ['ok' => false, 'error' => 'Üzgünüz, bu ürün stokta kalmadı'];
 
         $priceTl = (float)($item['price_tl'] ?? 0);
         $priceDcoin = (int)($item['price_dcoin'] ?? 0);
@@ -67,21 +72,38 @@ try {
             $data['users'][$userIndex]['updated_at'] = dg_now();
         }
 
-        $key = $data['store_keys'][$keyIndex];
-        $data['store_keys'][$keyIndex]['is_used'] = 1;
-        $data['store_keys'][$keyIndex]['used_by'] = $uid;
-        $data['store_keys'][$keyIndex]['used_at'] = dg_now();
+        $purchaseId = dg_next_id($data, 'purchases');
+        $storeKeyId = null;
+        $delivered = '';
+        $deliveryType = 'order_code';
+
+        if ($stockMode === 'keys') {
+            $key = $data['store_keys'][$keyIndex];
+            $data['store_keys'][$keyIndex]['is_used'] = 1;
+            $data['store_keys'][$keyIndex]['used_by'] = $uid;
+            $data['store_keys'][$keyIndex]['used_at'] = dg_now();
+            $storeKeyId = (int)$key['id'];
+            $delivered = (string)$key['key_code'];
+            $deliveryType = 'key';
+        } else {
+            // Eski mağaza ürünü için gerçek bir key uydurulmaz: bu kod,
+            // sipariş/teslimat takibinde kullanılacak sipariş kodudur.
+            $data['store_items'][$itemIndex]['stock'] = max(0, (int)($data['store_items'][$itemIndex]['stock'] ?? 0) - 1);
+            $data['store_items'][$itemIndex]['updated_at'] = dg_now();
+            $delivered = 'DG-' . $purchaseId . '-' . strtoupper(substr(bin2hex(random_bytes(3)), 0, 6));
+        }
 
         $purchase = [
-            'id' => dg_next_id($data, 'purchases'),
+            'id' => $purchaseId,
             'user_id' => $uid,
             'store_item_id' => $item_id,
-            'store_key_id' => (int)$key['id'],
+            'store_key_id' => $storeKeyId,
             'item_name' => (string)$item['name'],
             'payment_method' => $method,
             'price_paid_tl' => $method === 'cash' ? $priceTl : null,
             'price_paid_dcoin' => $method === 'dcoin' ? $priceDcoin : null,
-            'delivered_key' => (string)$key['key_code'],
+            'delivered_key' => $delivered,
+            'delivery_type' => $deliveryType,
             'created_at' => dg_now(),
         ];
         $data['purchases'][] = $purchase;
@@ -92,7 +114,8 @@ try {
             'ok' => true,
             'payment_method' => $method,
             'item_name' => (string)$item['name'],
-            'delivered_key' => (string)$key['key_code'],
+            'delivered_key' => $delivered,
+            'delivery_type' => $deliveryType,
             'new_balance' => $newBalance,
         ];
         if ($method === 'dcoin') $out['price_paid_dcoin'] = $priceDcoin;

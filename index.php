@@ -1,554 +1,548 @@
 <?php
-// index.php — DeviceGame Ana Sayfa (hataya dayanıklı)
+// Ana sayfa — eski Device Game tasarımı + veritabansız D-Coin sistemi.
 declare(strict_types=1);
-require_once __DIR__ . '/db.php';
 
-// Hata yakala — veri dosyası sorunu olsa bile sayfa boş 500 yerine uyarı göstersin
-$user = null; $is_logged = false; $daily_limit = DG_DAILY_LIMIT_DEFAULT; $today_count = 0; $remaining = 0;
-$ads = []; $active_ad = null; $store_items = []; $my_purchases = [];
+require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/lib/shop.php';
+
+$user = null;
+$is_logged = false;
+$daily_limit = DG_DAILY_LIMIT_DEFAULT;
+$today_count = 0;
+$remaining = 0;
+$ads = [];
+$active_ad = null;
+$store_items = [];
+$store_cards = [];
+$my_purchases = [];
+$legacy_products = [];
+$legacy_categories = function_exists('shop_categories') ? shop_categories() : [];
 $storage_error = null;
-$stat_users = 0; $stat_dcoin = 0; $stat_watches = 0; $stat_purchases = 0;
+
+$excerpt = static function (string $text, int $limit = 135): string {
+    $text = trim(preg_replace('/\s+/', ' ', $text) ?? $text);
+    if ($text === '') return '';
+    if (function_exists('mb_strlen') && mb_strlen($text, 'UTF-8') > $limit) {
+        return rtrim(mb_substr($text, 0, $limit, 'UTF-8')) . '…';
+    }
+    return strlen($text) > $limit ? rtrim(substr($text, 0, $limit)) . '…' : $text;
+};
+
+// Eski sitenin gerçek kataloğu: storage/products.json (yoksa data/products.php).
+try {
+    $legacy_products = shop_catalog();
+} catch (Throwable $e) {
+    $storage_error = $e->getMessage();
+    error_log('[index legacy catalog] ' . $e->getMessage());
+}
+
+// Eski ürünleri D-Coin mağazasına bağla. Katalog değişmedikçe yazma yapılmaz.
+try {
+    if ($legacy_products) {
+        dg_sync_legacy_products($legacy_products);
+    }
+} catch (Throwable $e) {
+    $storage_error = $storage_error ?: $e->getMessage();
+    error_log('[index legacy sync] ' . $e->getMessage());
+}
 
 try {
-  $data = dg_read_data();
-  $user = current_user();
-  $is_logged = $user !== null;
-  $daily_limit = max(1, (int)($data['settings']['daily_watch_limit'] ?? DG_DAILY_LIMIT_DEFAULT));
-  if ($is_logged) $today_count = today_watch_count((int)$user['id'], $data);
-  $remaining = max(0, $daily_limit - $today_count);
+    $data = dg_read_data(true);
+    $user = current_user();
+    $is_logged = $user !== null;
+    $daily_limit = max(1, (int)($data['settings']['daily_watch_limit'] ?? DG_DAILY_LIMIT_DEFAULT));
+    if ($is_logged) $today_count = today_watch_count((int)$user['id'], $data);
+    $remaining = max(0, $daily_limit - $today_count);
 
-  $ads = array_values(array_filter(
-    dg_sort_newest($data['ads'] ?? []),
-    fn(array $a): bool => (int)($a['is_active'] ?? 0) === 1
-  ));
-  $active_ad = $ads[0] ?? null;
-
-  $active_items = array_values(array_filter(
-    dg_sort_newest($data['store_items'] ?? []),
-    fn(array $i): bool => (int)($i['is_active'] ?? 0) === 1
-  ));
-  $store_items = dg_enrich_store_items($data, $active_items);
-
-  $stat_users = count($data['users'] ?? []);
-  foreach ($data['users'] ?? [] as $u) $stat_dcoin += (int)($u['dcoin_balance'] ?? 0);
-  $stat_watches = count($data['watch_logs'] ?? []);
-  $stat_purchases = count($data['purchases'] ?? []);
-
-  if ($is_logged) {
-    $items_by_id = dg_index_by_id($data['store_items'] ?? []);
-    $mine = array_values(array_filter(
-      $data['purchases'] ?? [],
-      fn(array $p): bool => (int)($p['user_id'] ?? 0) === (int)$user['id']
+    $ads = array_values(array_filter(
+        dg_sort_newest($data['ads'] ?? []),
+        fn(array $a): bool => (int)($a['is_active'] ?? 0) === 1
     ));
-    foreach (array_slice(dg_sort_newest($mine), 0, 10) as $p) {
-      $p['item_name'] = $items_by_id[(int)$p['store_item_id']]['name'] ?? ($p['item_name'] ?? 'Silinmiş ürün');
-      $my_purchases[] = $p;
+    $active_ad = $ads[0] ?? null;
+
+    $active_items = array_values(array_filter(
+        $data['store_items'] ?? [],
+        fn(array $i): bool => (int)($i['is_active'] ?? 0) === 1
+    ));
+    $store_items = dg_enrich_store_items($data, $active_items);
+
+    $dg_by_slug = [];
+    foreach ($store_items as $item) {
+        $legacy_slug = (string)($item['legacy_slug'] ?? '');
+        if ($legacy_slug !== '') $dg_by_slug[$legacy_slug] = $item;
     }
-  }
+
+    // Vitrin eski katalog sırasını korur; D-Coin'e özel ürünler sona eklenir.
+    foreach ($legacy_products as $legacy_product) {
+        $store_cards[] = [
+            'legacy' => $legacy_product,
+            'dg' => $dg_by_slug[(string)$legacy_product['slug']] ?? null,
+        ];
+    }
+    foreach ($store_items as $item) {
+        if (empty($item['legacy_slug'])) {
+            $store_cards[] = ['legacy' => null, 'dg' => $item];
+        }
+    }
+
+    if ($is_logged) {
+        $items_by_id = dg_index_by_id($data['store_items'] ?? []);
+        $mine = array_values(array_filter(
+            $data['purchases'] ?? [],
+            fn(array $p): bool => (int)($p['user_id'] ?? 0) === (int)$user['id']
+        ));
+        foreach (array_slice(dg_sort_newest($mine), 0, 3) as $purchase) {
+            $purchase['item_name'] = $items_by_id[(int)$purchase['store_item_id']]['name']
+                ?? ($purchase['item_name'] ?? 'Ürün');
+            $my_purchases[] = $purchase;
+        }
+    }
 } catch (Throwable $e) {
-  $storage_error = $e->getMessage();
-  error_log('[index storage] ' . $e->getMessage());
+    $storage_error = $storage_error ?: $e->getMessage();
+    error_log('[index storage] ' . $e->getMessage());
 }
+
+// D-Coin verisi okunamazsa bile eski mağaza ürünleri vitrinde kalsın.
+if (!$store_cards && $legacy_products) {
+    foreach ($legacy_products as $legacy_product) {
+        $store_cards[] = ['legacy' => $legacy_product, 'dg' => null];
+    }
+}
+
+$ads_for_js = [];
+foreach ($ads as $ad) {
+    $ads_for_js[] = [
+        'id' => (int)$ad['id'],
+        'title' => (string)($ad['title'] ?? ''),
+        'video_url' => (string)($ad['video_url'] ?? ''),
+        'thumbnail_url' => (string)($ad['thumbnail_url'] ?? ''),
+        'reward_dcoin' => (int)($ad['reward_dcoin'] ?? 0),
+        'duration_sec' => (int)($ad['duration_sec'] ?? 0),
+    ];
+}
+
+$dg_config = [
+    'csrf' => csrf_token(),
+    'isLogged' => $is_logged,
+    'balance' => $is_logged ? (int)$user['dcoin_balance'] : 0,
+    'dailyLimit' => $daily_limit,
+    'todayCount' => $today_count,
+    'remaining' => $remaining,
+    'ads' => $ads_for_js,
+    'activeAdId' => $active_ad ? (int)$active_ad['id'] : null,
+];
 
 $flash = flash_get();
 $flash_err = flash_error_get();
 
+// SEO ve üst bilgi eski ana sayfadaki gibi config.php + header.php'den gelir.
+$page_title = '';
+$page_css = ['shop.css', 'assets/css/dcoin.css'];
+$body_class = 'shop-page home-page dcoin-page';
+include __DIR__ . '/header.php';
 ?>
-<!doctype html>
-<html lang="tr">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DeviceGame — Oyna, İzle, Kazan. D-Coin Evreni</title>
-<meta name="description" content="Video izle D-Coin kazan, mağazada coin ile alışveriş yap. Cyberpunk gamer evreni DeviceGame.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Orbitron:wght@600;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/devicegame.css">
-</head>
-<body class="dg-body">
-<div class="dg-grid-bg"></div>
 
-<header class="dg-nav">
-  <div class="dg-nav-inner">
-    <a href="index.php" class="dg-logo">DEVICE<span>GAME</span><i></i></a>
-    <nav class="dg-nav-links">
-      <a href="index.php" class="is-active">Ana Sayfa</a>
-      <a href="#watch">Reklamlar</a>
-      <a href="#store">Mağaza</a>
-      <?php if ($is_logged && is_admin()): ?><a href="admin/index.php" style="color:var(--amber);border:1px solid rgba(255,214,10,0.3);background:rgba(255,214,10,0.08)">⚙ Admin</a><?php endif; ?>
-      <?php if ($is_logged): ?>
-        <span class="dg-user-pill">
-          <b><?=e($user['username'])?></b>
-          <span class="dg-coin"><i>◈</i> <span class="dg-balance-live" id="liveBalance"><?=number_format((int)$user['dcoin_balance'])?></span> D-Coin</span>
-        </span>
-        <a href="logout.php" class="dg-btn dg-btn-ghost dg-btn-sm">Çıkış</a>
-      <?php else: ?>
-        <a href="login.php" class="dg-btn dg-btn-ghost dg-btn-sm">Giriş</a>
-        <a href="register.php" class="dg-btn dg-btn-primary dg-btn-sm">Kayıt Ol</a>
-      <?php endif; ?>
-    </nav>
-  </div>
-</header>
+<?php if ($flash || $flash_err): ?>
+<div class="dcoin-flash-stack" aria-live="polite">
+    <?php if ($flash): ?>
+        <div class="dcoin-flash" role="status" data-dg-flash><?php echo e($flash['msg'] ?? ''); ?></div>
+    <?php endif; ?>
+    <?php if ($flash_err): ?>
+        <div class="dcoin-flash is-error" role="alert" data-dg-flash><?php echo e($flash_err); ?></div>
+    <?php endif; ?>
+</div>
+<?php endif; ?>
 
-<?php if ($flash): ?>
-<div class="dg-flash"><div class="dg-flash-inner"><?=e($flash['msg'])?></div></div>
-<?php endif; ?>
-<?php if ($flash_err): ?>
-<div class="dg-flash"><div class="dg-flash-inner error"><?=e($flash_err)?></div></div>
-<?php endif; ?>
+<section class="hero" aria-labelledby="hero-title">
+    <div class="hero-body">
+        <h1 id="hero-title" class="hero-title seq" style="--d:.05s"><?php echo e($slogan); ?></h1>
+        <p class="hero-desc seq" style="--d:.2s">Oyunlar yapıyor, oyuncular için seçip getiriyoruz. Stüdyomuzda yeni evrenler kuruyor, mağazamızda dijital kütüphaneni büyütüyoruz.</p>
+        <div class="hero-actions seq" style="--d:.35s">
+            <a href="<?php echo e($shop_url); ?>" class="btn btn-primary">Mağazaya gir</a>
+            <a href="<?php echo e($studio_url); ?>" class="btn btn-ghost" target="_blank" rel="noopener">Stüdyoyu keşfet</a>
+        </div>
+    </div>
+    <div class="hero-strip seq" style="--d:.55s">
+        <a href="#nexus" class="strip-item"><span class="pulse" aria-hidden="true"></span><?php echo e($featured_project_name); ?> &middot; <?php echo e($featured_project_status); ?></a>
+        <span class="strip-item strip-place"><?php echo e($city); ?></span>
+    </div>
+</section>
+
+<?php include __DIR__ . '/partials/slider.php'; ?>
+
+<section class="ecosystem" aria-label="Stüdyo ve mağaza">
+    <article class="pane pane-studio">
+        <div class="pane-content">
+            <h2>Stüdyo</h2>
+            <p>Sınırları zorlayan hikayeler ve yeni nesil grafiklerle örülmüş evrenler inşa ediyoruz.</p>
+            <a href="<?php echo e($studio_url); ?>" class="btn btn-primary" target="_blank" rel="noopener">Oyunları keşfet</a>
+        </div>
+    </article>
+    <article class="pane pane-shop">
+        <div class="pane-content">
+            <h2>Mağaza</h2>
+            <p>Binlerce oyun, premium hesaplar ve efsanevi indirimler. Dijital kütüphaneni genişlet.</p>
+            <a href="<?php echo e($shop_url); ?>" class="btn btn-dark">Mağazaya gir</a>
+        </div>
+    </article>
+</section>
+
 <?php if ($storage_error): ?>
-<div class="dg-flash"><div class="dg-flash-inner error">⚠️ Depolama uyarısı: <?=e($storage_error)?> — <a href="diagnose.php" style="color:inherit;text-decoration:underline">diagnose.php ile kontrol et</a></div></div>
+<div class="dcoin-alert" role="alert">
+    D-Coin depolaması şu an okunamıyor; eski mağaza kataloğu gösterilmeye devam ediyor.
+    <a href="diagnose.php">diagnose.php ile kontrol edin</a>.
+</div>
 <?php endif; ?>
 
-<main class="dg-wrap">
-
-  <!-- HERO -->
-  <section class="dg-hero">
-    <div>
-      <p class="dg-kicker">DEVICE GAME // SEASON 01 // CYBER GRID</p>
-      <h1>Oyna.<br>İzle.<br><em>Kazan.</em></h1>
-      <p class="dg-muted" style="margin-top:12px;max-width:52ch;font-size:15px">Reklam izle, <b style="color:var(--amber)">D-Coin</b> kazan, mağazada nakit yerine coin ile öde. Anti-cheat korumalı, sekme değiştirirsen video durur — sadece sonuna kadar izleyen ödüllendirilir.</p>
-      <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
-        <a href="#watch" class="dg-btn dg-btn-primary dg-btn-glow">▶ İZLEMEYE BAŞLA</a>
-        <a href="#store" class="dg-btn dg-btn-ghost">Mağazayı Keşfet →</a>
-      </div>
-      <div class="dg-stats" style="margin-top:22px">
-        <div class="dg-stat"><label>Toplam Üye</label><strong><?=number_format($stat_users)?></strong><small>Kayıtlı oyuncu</small></div>
-        <div class="dg-stat"><label>Dolaşımdaki D-Coin</label><strong style="color:var(--amber)"><?=number_format($stat_dcoin)?></strong><small>Tüm cüzdanlarda</small></div>
-        <div class="dg-stat"><label>İzlenen Reklam</label><strong style="color:var(--cyan)"><?=number_format($stat_watches)?></strong><small>Toplam oynatma</small></div>
-        <div class="dg-stat"><label>Mağaza Satış</label><strong style="color:var(--purple2)"><?=number_format($stat_purchases)?></strong><small>Teslim edildi</small></div>
-      </div>
-    </div>
-    <div>
-      <div class="dg-card">
-        <div class="dg-card-head">
-          <h2>◉ Günlük Görev</h2>
-          <span class="dg-badge <?=$remaining>0?'dg-badge-live':''?>"><?= $remaining>0 ? 'AKTİF' : 'TAMAMLANDI' ?></span>
-        </div>
-        <div class="dg-card-body">
-          <?php if (!$is_logged): ?>
-            <p class="dg-muted" style="font-size:13px">Günlük <b><?=$daily_limit?> video</b> izleyerek D-Coin kazanabilirsin. Başlamak için giriş yap.</p>
-            <a href="login.php" class="dg-btn dg-btn-primary dg-btn-block" style="margin-top:14px">Giriş Yap →</a>
-          <?php else: ?>
-            <div class="dg-daily">
-              <div class="dg-daily-bar"><div class="dg-daily-fill" style="width:<?= $daily_limit? round($today_count/$daily_limit*100):0 ?>%"></div></div>
-              <b><?=$today_count?> / <?=$daily_limit?></b>
-            </div>
-            <p class="dg-muted" style="font-size:12px;margin-top:10px">
-              <?php if ($remaining>0): ?>Bugün <b><?=$remaining?> video</b> daha izleyebilirsin. Her video sonuna kadar izlenmeli, sekme değiştirirsen durur.<?php else: ?>Günlük limit doldu. Yarın tekrar gel!<?php endif; ?>
-            </p>
-            <?php if ($my_purchases): ?>
-            <div class="dg-divider"></div>
-            <p style="font:700 11px JetBrains Mono,monospace;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Son Teslimatların</p>
-            <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
-              <?php foreach (array_slice($my_purchases,0,3) as $p): ?>
-                <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.04);border:1px solid var(--line);border-radius:12px;padding:8px 12px">
-                  <span style="font-size:12px;font-weight:600"><?=e($p['item_name'])?> <small style="color:var(--muted)">• <?=e($p['payment_method']=='dcoin' ? $p['price_paid_dcoin'].' D-Coin' : tl_format($p['price_paid_tl']))?></small></span>
-                  <span style="font:700 10px JetBrains Mono,monospace;background:rgba(0,230,118,0.12);color:#7CFFB2;padding:4px 8px;border-radius:999px;border:1px solid rgba(0,230,118,0.2)">TESLİM ✓</span>
-                </div>
-              <?php endforeach; ?>
-            </div>
-            <?php endif; ?>
-          <?php endif; ?>
-        </div>
-      </div>
-
-      <div class="dg-card" style="margin-top:14px">
-        <div class="dg-card-body" style="display:flex;gap:12px;align-items:center">
-          <div style="width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--cyan),var(--purple));display:grid;place-items:center;font-size:18px;flex-shrink:0">🛡️</div>
-          <div>
-            <h4 style="font:700 13px Inter">Anti-Cheat Aktif</h4>
-            <p class="dg-muted" style="font-size:12px;line-height:1.4">İleri sarma kapalı • Sekme değişirse pause • Süre doğrulaması sunucuda • Hileye sıfır tolerans</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- WATCH -->
-  <section id="watch" class="dg-section">
-    <div class="dg-section-head">
-      <div>
-        <h2>📺 Reklam Oynatıcı</h2>
-        <p>Listeden bir reklam seç, sonuna kadar izle ve D-Coin’i kap.</p>
-      </div>
-      <span class="dg-badge dg-badge-live">LIVE • ANTI-CHEAT</span>
-    </div>
-
-    <?php if (empty($ads)): ?>
-      <div class="dg-card"><div class="dg-empty">Henüz aktif reklam yok. Admin panelden ekleyin. <?php if($storage_error) echo '<br><small>Depolama hatası: '.e($storage_error).'</small>'; ?></div></div>
-    <?php else: ?>
-    <div class="dg-video-grid">
-      <!-- Player -->
-      <div>
-        <div class="dg-player" id="playerWrap">
-          <div class="dg-seek-guard" id="seekGuard">⏩ İleri sarma yasak — video başa sarıldı</div>
-          <video id="dgVideo" playsinline preload="metadata" controlsList="nodownload noremoteplayback" disablePictureInPicture></video>
-          <div class="dg-player-overlay" id="playOverlay">
-            <button class="dg-play-btn" id="bigPlay" aria-label="Oynat">▶</button>
-          </div>
-          <div class="dg-player-bar">
-            <div class="dg-progress"><div class="dg-progress-fill" id="progressFill"></div></div>
-            <div class="dg-time" id="timeLabel">00:00 / 00:00</div>
-            <div class="dg-anti"><i></i> ANTI-CHEAT: AKTİF</div>
-          </div>
-          <div class="dg-player-controls">
-            <button class="dg-btn dg-btn-ghost dg-btn-sm" id="pauseBtn">⏸ Durdur</button>
-            <button class="dg-btn dg-btn-ghost dg-btn-sm" id="muteBtn">🔊 Ses</button>
-            <span class="dg-muted" id="playerStatus">Bir reklam seç ve oynat</span>
-            <span style="margin-left:auto" class="dg-chip" id="rewardChip">+0 D-Coin</span>
-          </div>
-        </div>
-
-        <div id="watchResult" style="margin-top:12px;display:none"></div>
-
-        <div class="dg-card" style="margin-top:12px">
-          <div class="dg-card-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-            <span class="dg-chip on" id="limitChip"><?=$today_count?> / <?=$daily_limit?> izlendi</span>
-            <span class="dg-chip" id="tabChip">Sekme: Aktif ✓</span>
-            <span class="dg-chip" id="seekChip">Scrubbing: Engellendi 🛡️</span>
-            <span style="margin-left:auto;font:600 12px JetBrains Mono,monospace;color:var(--muted)" id="statusText">Hazır</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Ads list -->
-      <div class="dg-ads-list" id="adsList">
-        <?php foreach ($ads as $ad): ?>
-          <div class="dg-ad-item<?= $ad['id']==($active_ad['id']??'')?' is-active':'' ?>" data-ad='<?=e(json_encode($ad, JSON_UNESCAPED_UNICODE))?>'>
-            <div class="dg-ad-thumb">
-              <video src="<?=e($ad['video_url'])?>" muted preload="metadata"></video>
-              <span><?= (int)$ad['duration_sec'] ?>s</span>
-            </div>
-            <div class="dg-ad-meta">
-              <h4><?=e($ad['title'])?></h4>
-              <p><?= (int)$ad['reward_dcoin'] ?> D-Coin • <?= (int)$ad['duration_sec'] ?> sn</p>
-            </div>
-            <div class="dg-ad-reward">+<?= (int)$ad['reward_dcoin'] ?> ◈</div>
-          </div>
-        <?php endforeach; ?>
-        <?php if (!$is_logged): ?>
-          <div style="background:rgba(255,214,10,0.08);border:1px solid rgba(255,214,10,0.25);border-radius:14px;padding:12px 14px;font-size:13px;color:#FFEBA0">💡 İpucu: Giriş yapmadan videoları izleyebilirsin ama D-Coin sadece giriş yapanlara verilir. <a href="login.php" style="color:var(--amber);font-weight:700;text-decoration:underline">Giriş yap →</a></div>
-        <?php elseif ($remaining<=0): ?>
-          <div style="background:rgba(255,42,109,0.08);border:1px solid rgba(255,42,109,0.25);border-radius:14px;padding:12px 14px;font-size:13px;color:#FF8FAF">⛔ Günlük limit doldu. Yarın tekrar gel!</div>
-        <?php endif; ?>
-      </div>
-    </div>
-    <?php endif; ?>
-  </section>
-
-  <!-- STORE -->
-  <section id="store" class="dg-section">
-    <div class="dg-section-head">
-      <div>
-        <h2>🛒 Tek Çatı Mağaza</h2>
-        <p>Her ürün hem TL hem D-Coin ile alınabilir. D-Coin’in yetiyorsa coin ile öde, yetmiyorsa nakit al.</p>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <div class="dg-search"><input id="storeSearch" type="search" placeholder="Ürün ara..."></div>
-        <span class="dg-badge"><?=count($store_items)?> ÜRÜN</span>
-      </div>
-    </div>
-
-    <?php if (empty($store_items)): ?>
-      <div class="dg-card"><div class="dg-empty">Mağazada henüz ürün yok. Admin panelden ekleyin.</div></div>
-    <?php else: ?>
-    <div class="dg-store-grid" id="storeGrid">
-      <?php foreach ($store_items as $it):
-        $img = $it['image_url'] ?: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=600&q=80';
-        $keys_left = (int)($it['keys_left'] ?? 0);
-        $in_stock = $keys_left>0;
-      ?>
-      <article class="dg-product" data-name="<?=e(function_exists('mb_strtolower') ? mb_strtolower($it['name'].' '.($it['description'] ?? ''), 'UTF-8') : strtolower($it['name'].' '.($it['description'] ?? '')))?>">
-        <div class="dg-product-img">
-          <img src="<?=e($img)?>" alt="<?=e($it['name'])?>" loading="lazy">
-          <?php if ($it['price_dcoin']>0): ?><span class="dg-product-badge">◈ <?= (int)$it['price_dcoin'] ?> D-Coin</span><?php endif; ?>
-          <span class="dg-product-stock <?= $keys_left<=2 && $keys_left>0 ? 'low':'' ?>"><?= $in_stock ? $keys_left.' stok' : 'Tükendi' ?></span>
-        </div>
-        <div class="dg-product-body">
-          <h3><?=e($it['name'])?></h3>
-          <p><?=e($it['description'] ?: 'DeviceGame güvencesiyle anında dijital teslimat.')?></p>
-          <div class="dg-prices">
-            <span class="dg-price-tl"><?=tl_format($it['price_tl'])?></span>
-            <span class="dg-price-coin">◈ <?= (int)$it['price_dcoin'] ?> D-Coin</span>
-          </div>
-        </div>
-        <div class="dg-product-actions">
-          <?php if (!$in_stock): ?>
-            <span class="dg-no-stock">Stokta yok</span>
-          <?php else: ?>
-            <?php if ($is_logged): ?>
-              <?php $can_coin = (int)$user['dcoin_balance'] >= (int)$it['price_dcoin'] && (int)$it['price_dcoin']>0; ?>
-              <button class="dg-btn <?= $can_coin?'dg-btn-cyan':'dg-btn-ghost' ?> dg-btn-sm"
-                      onclick="purchase(<?= (int)$it['id'] ?>,'dcoin')"
-                      <?= $can_coin?'':'disabled title="Bakiye yetersiz"'?>>
-                <?= $can_coin ? '◈ D-Coin ile Al' : '◈ Yetersiz ('.(int)$it['price_dcoin'].')' ?>
-              </button>
-              <button class="dg-btn dg-btn-ghost dg-btn-sm" onclick="purchase(<?= (int)$it['id'] ?>,'cash')">💳 Nakit Al</button>
-            <?php else: ?>
-              <a href="login.php?next=index.php" class="dg-btn dg-btn-primary dg-btn-sm" style="flex:1">Giriş yap ve al</a>
-              <span class="dg-mini" style="width:100%;text-align:center"><?=tl_format($it['price_tl'])?> • ◈ <?= (int)$it['price_dcoin'] ?> D-Coin</span>
-            <?php endif; ?>
-          <?php endif; ?>
-        </div>
-      </article>
-      <?php endforeach; ?>
-    </div>
-    <?php endif; ?>
-  </section>
-
-  <section class="dg-section">
-    <div class="dg-card">
-      <div class="dg-card-body" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;justify-content:space-between">
+<section class="shop-section" id="magaza" aria-labelledby="store-title">
+    <div class="shop-section-head">
         <div>
-          <h3 style="font:800 14px Orbitron,monospace">DeviceGame Nedir?</h3>
-          <p class="dg-muted" style="font-size:13px;margin-top:4px;max-width:60ch">Oyuncular için kurduğumuz evren: video izle, görev yap, D-Coin topla, mağazada harca. Tüm altyapı Vanilla PHP + dosya depolama ile; veritabanı kurulumu yok, hantallık yok.</p>
+            <p class="eyebrow">Mağaza</p>
+            <h2 id="store-title">Rafı karıştır.</h2>
         </div>
-        <div style="display:flex;gap:8px">
-          <span class="dg-chip on">PHP 8.1+</span>
-          <span class="dg-chip">JSON Storage</span>
-          <span class="dg-chip">Anti-Cheat</span>
-          <span class="dg-chip">Cyberpunk</span>
+        <p>Eski mağazamızdaki ürünler yine aynı rafta. TL ile sepete ekleyebilir ya da bakiyen yetiyorsa D-Coin ile alabilirsin.</p>
+    </div>
+
+    <div class="store-tools">
+        <label class="search-box">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>
+            </svg>
+            <input id="storeSearch" type="search" placeholder="Ürün, platform ya da tür ara" aria-label="Ürün ara">
+        </label>
+        <p class="store-count"><strong data-visible-count><?php echo count($store_cards); ?></strong> ürün listeleniyor</p>
+    </div>
+
+    <div class="p-grid" id="storeGrid">
+        <?php if (!$store_cards): ?>
+            <div class="empty-state">
+                <h3>Rafta ürün görünmüyor.</h3>
+                <p>Mağaza kataloğu yüklenemedi. WhatsApp üzerinden bize yazın, yardımcı olalım.</p>
+                <a class="btn btn-primary" href="<?php echo e(wa_link($whatsapp, 'Merhaba, mağaza ürünleri hakkında bilgi almak istiyorum.')); ?>" target="_blank" rel="noopener">WhatsApp'tan sor</a>
+            </div>
+        <?php else: ?>
+            <?php foreach ($store_cards as $index => $card): ?>
+                <?php
+                $legacy = $card['legacy'];
+                $dg_item = $card['dg'];
+                if ($legacy) {
+                    $product = $legacy;
+                    $product_name = (string)$legacy['name'];
+                    $category_label = $legacy_categories[$legacy['category']] ?? '';
+                    $product_sub = $excerpt((string)($legacy['subtitle'] !== '' ? $legacy['subtitle'] : $legacy['desc']));
+                    $detail_url = 'product.php?slug=' . urlencode((string)$legacy['slug']);
+                    $in_cart = (int)(cart_raw()[$legacy['slug']] ?? 0);
+                } else {
+                    $product_name = (string)($dg_item['name'] ?? 'Dijital ürün');
+                    $initials = '';
+                    foreach (preg_split('/\s+/', trim($product_name)) ?: [] as $word) {
+                        if ($word === '') continue;
+                        $initials .= function_exists('mb_substr') ? mb_substr($word, 0, 1, 'UTF-8') : substr($word, 0, 1);
+                        if (strlen($initials) >= 3) break;
+                    }
+                    $product = [
+                        'slug' => 'dcoin-' . (int)($dg_item['id'] ?? $index),
+                        'pattern' => 'grid',
+                        'c1' => '#0F3B2C',
+                        'c2' => '#2FA377',
+                        'accent' => '#D6FFE9',
+                        'image' => (string)($dg_item['image_url'] ?? ''),
+                        'badge' => null,
+                        'platform' => 'Dijital',
+                        'glyph' => $initials !== '' ? strtoupper($initials) : 'DG',
+                    ];
+                    $category_label = 'Dijital Ürünler';
+                    $product_sub = $excerpt((string)($dg_item['description'] ?? ''));
+                    $detail_url = '#magaza';
+                    $in_cart = 0;
+                }
+
+                $badge_class = 'p-badge';
+                if (($product['badge'] ?? null) === 'Stüdyo imzası') $badge_class .= ' signature';
+                elseif (($product['badge'] ?? null) === 'Sınırlı') $badge_class .= ' limited';
+
+                $dg_price = $dg_item ? (int)($dg_item['price_dcoin'] ?? 0) : 0;
+                $dg_stock = $dg_item ? (int)($dg_item['keys_left'] ?? $dg_item['stock'] ?? 0) : 0;
+                $dg_in_stock = $dg_item && $dg_stock > 0;
+                $can_coin = $is_logged && $dg_in_stock && $dg_price > 0 && (int)$user['dcoin_balance'] >= $dg_price;
+                $search_blob = $product_name . ' ' . $product_sub . ' ' . $category_label . ' ' . (string)($product['platform'] ?? '');
+                if ($legacy) $search_blob .= ' ' . (string)($legacy['desc'] ?? '');
+                $index_label = str_pad((string)($index + 1), 2, '0', STR_PAD_LEFT);
+                ?>
+                <article class="p-card dcoin-card"
+                         data-store-card
+                         data-item-id="<?php echo $dg_item ? (int)$dg_item['id'] : 0; ?>"
+                         data-stock="<?php echo $dg_stock; ?>"
+                         data-name="<?php echo e(function_exists('mb_strtolower') ? mb_strtolower($search_blob, 'UTF-8') : strtolower($search_blob)); ?>">
+                    <?php if ($legacy): ?>
+                        <a class="p-card-media" href="<?php echo e($detail_url); ?>" aria-label="<?php echo e($product_name); ?> detayları">
+                    <?php else: ?>
+                        <div class="p-card-media">
+                    <?php endif; ?>
+                        <div class="poster" data-pattern="<?php echo e($product['pattern']); ?>"
+                             style="--c1:<?php echo e($product['c1']); ?>;--c2:<?php echo e($product['c2']); ?>;--accent:<?php echo e($product['accent']); ?>">
+                            <?php echo poster_svg($product); ?>
+                            <?php if (!empty($product['image']) && (str_starts_with((string)$product['image'], 'http') || is_file(__DIR__ . '/' . $product['image']))): ?>
+                                <img class="poster-img" src="<?php echo e($product['image']); ?>" alt="" loading="lazy" decoding="async">
+                            <?php endif; ?>
+                            <?php if (!empty($product['badge'])): ?>
+                                <span class="<?php echo e($badge_class); ?>"><?php echo e($product['badge']); ?></span>
+                            <?php endif; ?>
+                            <div class="poster-top">
+                                <span class="poster-tag"><?php echo e($product['platform']); ?></span>
+                            </div>
+                            <span class="poster-glyph" aria-hidden="true"><?php echo e($product['glyph']); ?></span>
+                            <div class="poster-bottom">
+                                <span class="poster-meta"><?php echo e($category_label); ?></span>
+                                <span class="poster-index"><?php echo e($index_label); ?></span>
+                            </div>
+                        </div>
+                    <?php if ($legacy): ?>
+                        </a>
+                    <?php else: ?>
+                        </div>
+                    <?php endif; ?>
+
+                    <div class="p-card-body">
+                        <p class="p-kicker"><?php echo e($category_label); ?></p>
+                        <h3 class="p-name">
+                            <?php if ($legacy): ?>
+                                <a href="<?php echo e($detail_url); ?>"><?php echo e($product_name); ?></a>
+                            <?php else: ?>
+                                <?php echo e($product_name); ?>
+                            <?php endif; ?>
+                        </h3>
+                        <p class="p-sub"><?php echo e($product_sub); ?></p>
+
+                        <div class="p-card-foot">
+                            <div class="price">
+                                <b><?php echo e(money($legacy ? (float)$legacy['price'] : (float)($dg_item['price_tl'] ?? 0))); ?></b>
+                                <?php if ($legacy && !empty($legacy['old_price'])): ?>
+                                    <s><?php echo e(money((float)$legacy['old_price'])); ?></s>
+                                <?php endif; ?>
+                            </div>
+                            <?php if ($legacy): ?>
+                                <form method="post" action="cart.php" class="add-form">
+                                    <input type="hidden" name="csrf" value="<?php echo e(csrf_token()); ?>">
+                                    <input type="hidden" name="action" value="add">
+                                    <input type="hidden" name="slug" value="<?php echo e($legacy['slug']); ?>">
+                                    <input type="hidden" name="qty" value="1">
+                                    <input type="hidden" name="redirect" value="<?php echo e($_SERVER['REQUEST_URI'] ?? 'index.php'); ?>">
+                                    <button type="submit" class="add-btn<?php echo $in_cart > 0 ? ' is-done' : ''; ?>"
+                                            aria-label="<?php echo e($product_name); ?> sepete ekle" title="Sepete ekle">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                                            <path d="M12 5v14M5 12h14"/>
+                                        </svg>
+                                    </button>
+                                </form>
+                            <?php endif; ?>
+                        </div>
+
+                        <div class="dcoin-buy-row">
+                            <?php if ($dg_item): ?>
+                                <div class="dcoin-price-wrap">
+                                    <span class="dcoin-price"><?php echo number_format($dg_price, 0, ',', '.'); ?> D-Coin</span>
+                                    <span class="dcoin-stock<?php echo $dg_stock <= 0 ? ' is-empty' : ($dg_stock <= 2 ? ' is-low' : ''); ?>" data-stock-label>
+                                        <?php echo $dg_in_stock ? $dg_stock . ' stok' : 'Tükendi'; ?>
+                                    </span>
+                                </div>
+                                <div class="dcoin-actions">
+                                    <?php if (!$is_logged): ?>
+                                        <a href="login.php?next=index.php" class="btn btn-primary dcoin-buy">Giriş yap ve al</a>
+                                    <?php elseif (!$dg_in_stock): ?>
+                                        <button type="button" class="btn btn-primary dcoin-buy" disabled>Stokta yok</button>
+                                    <?php else: ?>
+                                        <button type="button" class="btn btn-primary dcoin-buy"
+                                                data-purchase="<?php echo (int)$dg_item['id']; ?>"
+                                                data-method="dcoin"
+                                                data-price="<?php echo $dg_price; ?>"
+                                                <?php echo $can_coin ? '' : 'disabled title="Bakiye yetersiz"'; ?>>
+                                            <?php echo $can_coin ? 'D-Coin ile al' : 'Yetersiz bakiye'; ?>
+                                        </button>
+                                        <?php if (!$legacy): ?>
+                                            <button type="button" class="btn btn-ghost dcoin-cash"
+                                                    data-purchase="<?php echo (int)$dg_item['id']; ?>"
+                                                    data-method="cash">Nakit al</button>
+                                        <?php endif; ?>
+                                    <?php endif; ?>
+                                </div>
+                            <?php else: ?>
+                                <span class="dcoin-unavailable">D-Coin ile alım bu üründe kapalı</span>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </article>
+            <?php endforeach; ?>
+        <?php endif; ?>
+    </div>
+</section>
+
+<section class="dcoin-section" id="dcoin" aria-labelledby="dcoin-title">
+    <div class="shop-section">
+        <div class="shop-section-head">
+            <div>
+                <p class="eyebrow">D-Coin</p>
+                <h2 id="dcoin-title">İzle, kazan, harca.</h2>
+            </div>
+            <p>Seçtiğin videoyu sonuna kadar izle; ödül bakiyene eklensin. Kazandığın D-Coin'i yukarıdaki mağaza ürünlerinde kullanabilirsin.</p>
         </div>
-      </div>
-    </div>
-  </section>
 
-</main>
+        <div class="dcoin-layout">
+            <div class="dcoin-panel">
+                <?php if ($ads): ?>
+                    <div class="dcoin-player" id="playerWrap">
+                        <div class="dcoin-seek-guard" id="seekGuard">İleri sarma kapalı</div>
+                        <video id="dgVideo" playsinline preload="metadata" controlsList="nodownload noremoteplayback" disablePictureInPicture></video>
+                        <div class="dcoin-play-overlay" id="playOverlay">
+                            <button type="button" class="dcoin-play-btn" id="bigPlay" aria-label="Videoyu oynat">
+                                <svg width="27" height="27" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5-11-6.5Z"/></svg>
+                            </button>
+                        </div>
+                        <div class="dcoin-player-bar">
+                            <div class="dcoin-progress" aria-hidden="true"><div class="dcoin-progress-fill" id="progressFill"></div></div>
+                            <div class="dcoin-time" id="timeLabel">00:00 / 00:00</div>
+                            <div class="dcoin-reward-chip" id="rewardChip">+0 D-Coin</div>
+                        </div>
+                        <div class="dcoin-controls">
+                            <button type="button" class="btn btn-ghost dcoin-control-btn" id="pauseBtn">Oynat</button>
+                            <button type="button" class="btn btn-ghost dcoin-control-btn" id="muteBtn">Ses açık</button>
+                            <span class="dcoin-status" id="statusText">Hazır</span>
+                            <span hidden id="playerStatus">Hazır</span>
+                        </div>
+                    </div>
+                    <div class="dcoin-watch-result">
+                        <div id="watchResult" hidden></div>
+                    </div>
+                    <div class="dcoin-player-notes" aria-label="İzleme durumu">
+                        <span class="dcoin-chip" id="limitChip"><strong><?php echo $today_count; ?> / <?php echo $daily_limit; ?></strong> izlendi</span>
+                        <span class="dcoin-chip" id="tabChip">Sekme: <strong>Aktif</strong></span>
+                        <span class="dcoin-chip">İleri sarma: <strong>Kapalı</strong></span>
+                        <span class="dcoin-chip">Süre kontrolü: <strong>Sunucuda</strong></span>
+                    </div>
+                <?php else: ?>
+                    <div class="dcoin-empty">
+                        <h3>Şu an izlenecek video yok.</h3>
+                        <p>Yeni videolar eklendiğinde D-Coin kazanmaya buradan devam edebilirsin.</p>
+                    </div>
+                <?php endif; ?>
+            </div>
 
-<footer style="border-top:1px solid var(--line);padding:22px 24px;text-align:center;color:var(--muted);font-size:12px">
-  <div style="max-width:1280px;margin:0 auto">
-    <p>© <?=date('Y')?> <b style="color:var(--text)">DeviceGame</b> — Oyun dünyasının anahtarı. Tüm hakları saklıdır. <span style="color:var(--cyan)">◉</span> Made for gamers.</p>
-    <p class="dg-mini" style="margin-top:6px">Torbalı, İzmir • info@devicegame.com • WhatsApp: 0551 957 83 50 • <a href="diagnose.php" style="color:var(--muted);text-decoration:underline">diagnose</a></p>
-  </div>
-</footer>
+            <aside class="dcoin-side">
+                <div class="dcoin-panel dcoin-account">
+                    <?php if ($is_logged): ?>
+                        <div class="dcoin-account-top">
+                            <div>
+                                <p class="dcoin-account-label">Hesabım</p>
+                                <h3><?php echo e($user['username']); ?></h3>
+                            </div>
+                            <div class="dcoin-balance-big">
+                                <span data-live-balance><?php echo number_format((int)$user['dcoin_balance'], 0, ',', '.'); ?></span>
+                                <small>D-Coin bakiyen</small>
+                            </div>
+                        </div>
+                        <p class="dcoin-account-text">
+                            <?php if ($remaining > 0): ?>
+                                Bugün <strong data-remaining-count><?php echo $remaining; ?></strong> video daha izleyebilirsin.
+                            <?php else: ?>
+                                Günlük izleme limitin doldu. Yarın yeniden kazanabilirsin.
+                            <?php endif; ?>
+                        </p>
+                        <div class="dcoin-daily-head">
+                            <span>Günlük ilerleme</span>
+                            <strong><span data-today-count><?php echo $today_count; ?></span> / <?php echo $daily_limit; ?></strong>
+                        </div>
+                        <div class="dcoin-daily-bar" aria-hidden="true">
+                            <div class="dcoin-daily-fill" data-daily-fill style="width:<?php echo $daily_limit ? min(100, round($today_count / $daily_limit * 100)) : 0; ?>%"></div>
+                        </div>
+                        <?php if ($my_purchases): ?>
+                            <div class="dcoin-recent">
+                                <h4>Son alışverişlerin</h4>
+                                <?php foreach ($my_purchases as $purchase): ?>
+                                    <div class="dcoin-recent-item">
+                                        <span><?php echo e($purchase['item_name']); ?></span>
+                                        <span><?php echo ($purchase['payment_method'] ?? '') === 'dcoin'
+                                            ? e(((int)($purchase['price_paid_dcoin'] ?? 0)) . ' D-Coin')
+                                            : e(tl_format((float)($purchase['price_paid_tl'] ?? 0))); ?></span>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                    <?php else: ?>
+                        <p class="dcoin-account-label">D-Coin hesabı</p>
+                        <h3>Bakiyen seni bekliyor.</h3>
+                        <p class="dcoin-account-text">Günde <?php echo $daily_limit; ?> videoya kadar izleyip D-Coin kazanın. Ödüller yalnızca videoyu sonuna kadar izleyen hesaplara verilir.</p>
+                        <div style="display:flex;gap:.65rem;flex-wrap:wrap">
+                            <a href="login.php?next=index.php" class="btn btn-primary">Giriş yap</a>
+                            <a href="register.php" class="btn btn-ghost">Kayıt ol</a>
+                        </div>
+                    <?php endif; ?>
+                </div>
 
-<!-- Purchase Modal -->
-<div class="dg-modal" id="purchaseModal">
-  <div class="dg-modal-bg" onclick="closeModal()"></div>
-  <div class="dg-modal-card">
-    <h3 id="modalTitle">Teslimat</h3>
-    <p class="dg-muted" id="modalDesc" style="font-size:13px;margin:6px 0 14px"></p>
-    <div class="dg-key-box" id="modalKey" style="display:none">
-      <span id="modalKeyText"></span>
-      <button class="dg-btn dg-btn-ghost dg-btn-sm" onclick="copyKey()">Kopyala</button>
+                <div class="dcoin-panel dcoin-ads">
+                    <div class="dcoin-ads-head">
+                        <h3>Videolar</h3>
+                        <span><?php echo count($ads); ?> aktif</span>
+                    </div>
+                    <?php if ($ads): ?>
+                        <div class="dcoin-ads-list" id="adsList">
+                            <?php foreach ($ads as $ad): ?>
+                                <button type="button" class="dcoin-ad<?php echo (int)$ad['id'] === (int)($active_ad['id'] ?? 0) ? ' is-active' : ''; ?>" data-ad-id="<?php echo (int)$ad['id']; ?>">
+                                    <span class="dcoin-ad-thumb">
+                                        <?php if (!empty($ad['thumbnail_url'])): ?>
+                                            <img src="<?php echo e($ad['thumbnail_url']); ?>" alt="" loading="lazy">
+                                        <?php else: ?>
+                                            <video src="<?php echo e($ad['video_url']); ?>#t=0.5" muted preload="metadata" aria-hidden="true"></video>
+                                        <?php endif; ?>
+                                        <span><?php echo (int)$ad['duration_sec']; ?> sn</span>
+                                    </span>
+                                    <span class="dcoin-ad-meta">
+                                        <span class="dcoin-ad-title"><?php echo e($ad['title']); ?></span>
+                                        <p><?php echo (int)$ad['duration_sec']; ?> saniye · tamamlayana ödül</p>
+                                    </span>
+                                    <span class="dcoin-ad-reward">+<?php echo (int)$ad['reward_dcoin']; ?></span>
+                                </button>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php else: ?>
+                        <p class="dcoin-empty" style="padding:1.2rem">Henüz aktif video yok.</p>
+                    <?php endif; ?>
+                </div>
+            </aside>
+        </div>
     </div>
-    <div style="display:flex;gap:10px;margin-top:16px">
-      <button class="dg-btn dg-btn-primary dg-btn-block" onclick="closeModal()">Harika, kapat</button>
+</section>
+
+<section class="nexus" id="nexus" aria-labelledby="nexus-title">
+    <div class="nexus-inner">
+        <p class="status"><span class="pulse" aria-hidden="true"></span><?php echo e($featured_project_status); ?></p>
+        <div class="nexus-main">
+            <h2 id="nexus-title" class="nexus-title"><?php echo e($featured_project_name); ?></h2>
+            <p class="nexus-desc"><?php echo e($featured_project_desc); ?></p>
+            <a href="<?php echo e($studio_url); ?>" class="text-link" target="_blank" rel="noopener">Geliştirici günlüklerini oku</a>
+        </div>
     </div>
-  </div>
+</section>
+
+<div class="dcoin-modal" id="purchaseModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="dcoin-modal-bg" data-close-modal></div>
+    <div class="dcoin-modal-card">
+        <p class="eyebrow">Teslimat</p>
+        <h3 id="modalTitle">Teslimat hazır.</h3>
+        <p id="modalDesc"></p>
+        <span class="dcoin-code-label" id="modalCodeLabel">Sipariş kodu</span>
+        <div class="dcoin-key-box">
+            <code id="modalKeyText"></code>
+            <button type="button" class="btn btn-ghost" id="copyDeliveryCode">Kopyala</button>
+        </div>
+        <div class="dcoin-modal-actions">
+            <button type="button" class="btn btn-primary" data-close-modal>Kapat</button>
+        </div>
+    </div>
 </div>
 
-<div class="dg-toast" id="toast"></div>
+<div class="dcoin-toast" id="dcoinToast" role="status" aria-live="polite"></div>
 
-<script>
-const IS_LOGGED = <?= $is_logged ? 'true':'false' ?>;
-const DAILY_LIMIT = <?= (int)$daily_limit ?>;
-const TODAY_COUNT = <?= (int)$today_count ?>;
-const REMAINING = <?= (int)$remaining ?>;
-let currentAd = <?= $active_ad ? json_encode($active_ad, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) : 'null' ?>;
-let watchToken = null;
-let watchStartTime = 0;
-let hasRewarded = false;
-let isSeeking = false;
+<script id="dg-config" type="application/json"><?php echo json_encode($dg_config, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?></script>
+<script src="assets/js/dcoin.js" defer></script>
 
-const video = document.getElementById('dgVideo');
-const playOverlay = document.getElementById('playOverlay');
-const bigPlay = document.getElementById('bigPlay');
-const progressFill = document.getElementById('progressFill');
-const timeLabel = document.getElementById('timeLabel');
-const rewardChip = document.getElementById('rewardChip');
-const playerStatus = document.getElementById('playerStatus');
-const statusText = document.getElementById('statusText');
-const seekGuard = document.getElementById('seekGuard');
-const watchResult = document.getElementById('watchResult');
-const liveBalance = document.getElementById('liveBalance');
-
-function toast(msg, ms=3000){
-  const t=document.getElementById('toast');
-  t.textContent=msg; t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'), ms);
-}
-function fmt(s){ s=Math.round(s); const m=Math.floor(s/60).toString().padStart(2,'0'); const sec=(s%60).toString().padStart(2,'0'); return `${m}:${sec}`; }
-
-function loadAd(ad){
-  currentAd = ad;
-  hasRewarded = false;
-  watchToken = null;
-  if(watchResult) watchResult.style.display='none';
-  document.querySelectorAll('.dg-ad-item').forEach(el=>{
-    try{ const d=JSON.parse(el.dataset.ad); el.classList.toggle('is-active', d.id===ad.id); }catch(e){}
-  });
-  if(!video) return;
-  video.pause();
-  video.src = ad.video_url;
-  video.load();
-  if(rewardChip) rewardChip.textContent = `+${ad.reward_dcoin} D-Coin`;
-  if(playerStatus) playerStatus.textContent = ad.title;
-  video.onloadedmetadata = ()=>{ if(timeLabel) timeLabel.textContent = `00:00 / ${fmt(video.duration||ad.duration_sec)}`; if(playOverlay) playOverlay.style.display='grid'; };
-  if(statusText) statusText.textContent='Hazır — oynat';
-}
-
-if (currentAd && video) loadAd(currentAd);
-
-document.getElementById('adsList')?.addEventListener('click', (e)=>{
-  const item = e.target.closest('.dg-ad-item');
-  if(!item) return;
-  const ad = JSON.parse(item.dataset.ad);
-  loadAd(ad);
-});
-
-async function startPlayback(){
-  if(!currentAd){ toast('Önce bir reklam seç'); return; }
-  if(!IS_LOGGED){ toast('D-Coin kazanmak için giriş yapmalısın — video yine oynayacak'); }
-  if(REMAINING<=0 && IS_LOGGED){ toast('Günlük limit doldu! Yarın tekrar gel.'); return; }
-  if(IS_LOGGED){
-    try{
-      const r = await fetch('api/watch_start.php', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ad_id: currentAd.id, csrf: '<?=csrf_token()?>'})
-      });
-      const j = await r.json();
-      if(!j.ok){ toast(j.error||'Başlatılamadı'); return; }
-      watchToken = j.token;
-      watchStartTime = Date.now();
-    }catch(e){ toast('Bağlantı hatası'); return; }
-  }
-  if(playOverlay) playOverlay.style.display='none';
-  try{ await video.play(); }catch(e){}
-  if(statusText) statusText.textContent='Oynatılıyor...';
-}
-
-bigPlay?.addEventListener('click', startPlayback);
-video?.addEventListener('click', ()=>{ if(video.paused) startPlayback(); else video.pause(); });
-document.getElementById('pauseBtn')?.addEventListener('click', ()=>{
-  if(video.paused) startPlayback(); else video.pause();
-});
-document.getElementById('muteBtn')?.addEventListener('click', ()=>{ video.muted=!video.muted; document.getElementById('muteBtn').textContent = video.muted?'🔇 Sessiz':'🔊 Ses'; });
-
-video?.addEventListener('timeupdate', ()=>{
-  const cur = video.currentTime||0;
-  const dur = video.duration||currentAd?.duration_sec||30;
-  const pct = dur? Math.min(100, cur/dur*100):0;
-  if(progressFill) progressFill.style.width = pct+'%';
-  if(timeLabel) timeLabel.textContent = `${fmt(cur)} / ${fmt(dur)}`;
-});
-video?.addEventListener('pause', ()=>{
-  if(!video.ended && statusText) { statusText.textContent='Durduruldu — devam etmek için oynat'; const chip=document.getElementById('tabChip'); if(chip) chip.textContent='Sekme: Aktif ✓'; }
-});
-video?.addEventListener('play', ()=>{ if(statusText) statusText.textContent='Oynatılıyor... Sekme değiştirme!'; });
-
-let lastTime = 0;
-video?.addEventListener('seeking', ()=>{
-  if(!isSeeking && Math.abs(video.currentTime - lastTime) > 1.5){
-    if(video.currentTime > lastTime + 1.2){
-      isSeeking=true;
-      video.currentTime = lastTime;
-      if(seekGuard){ seekGuard.classList.add('show'); setTimeout(()=>seekGuard.classList.remove('show'), 2200); }
-      if(statusText) statusText.textContent='İleri sarma engellendi!';
-      setTimeout(()=>isSeeking=false, 300);
-    }
-  }
-});
-video?.addEventListener('timeupdate', ()=>{ if(!video.seeking) lastTime = video.currentTime; });
-
-document.addEventListener('visibilitychange', ()=>{
-  const chip=document.getElementById('tabChip');
-  if(document.hidden){
-    if(video && !video.paused){ video.pause(); toast('Sekme değiştirildi — video duraklatıldı'); }
-    if(chip) chip.textContent='Sekme: Arka planda ⏸';
-    if(statusText) statusText.textContent='Sekme değişti — video durdu';
-  } else {
-    if(chip) chip.textContent='Sekme: Aktif ✓';
-    if(statusText) statusText.textContent= video && video.paused ? 'Duraklatıldı — oynatmak için tıkla' : 'Oynatılıyor...';
-  }
-});
-video?.addEventListener('contextmenu', e=>e.preventDefault());
-document.addEventListener('keydown', (e)=>{
-  if(document.activeElement && ['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) return;
-  if(['ArrowRight','ArrowLeft','ArrowUp','ArrowDown'].includes(e.key)){
-    if(e.target===video || (video && video.contains(e.target))) e.preventDefault();
-  }
-});
-
-video?.addEventListener('ended', async ()=>{
-  if(progressFill) progressFill.style.width='100%';
-  if(statusText) statusText.textContent='Tamamlandı — doğrulanıyor...';
-  if(playOverlay) playOverlay.style.display='grid';
-  if(bigPlay) bigPlay.textContent='↺';
-  if(!IS_LOGGED){
-    if(watchResult){ watchResult.innerHTML = `<div class="dg-card"><div class="dg-card-body" style="background:rgba(255,214,10,0.08);border:1px solid rgba(255,214,10,0.2);border-radius:14px"><b>Harika!</b> Videoyu sonuna kadar izledin. D-Coin kazanmak için <a href="login.php" style="color:var(--amber);font-weight:700">giriş yap</a>.</div></div>`; watchResult.style.display='block'; }
-    return;
-  }
-  if(hasRewarded) return;
-  hasRewarded=true;
-  const elapsed = (Date.now()-watchStartTime)/1000;
-  if(elapsed < (currentAd.duration_sec - 3)){
-    if(watchResult){ watchResult.innerHTML = `<div class="dg-alert dg-alert-error">Süre doğrulaması başarısız. Videoyu tam izlemelisin.</div>`; watchResult.style.display='block'; }
-    return;
-  }
-  try{
-    const r = await fetch('api/watch_complete.php', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ad_id: currentAd.id, token: watchToken, csrf: '<?=csrf_token()?>'})
-    });
-    const j = await r.json();
-    if(j.ok){
-      const bal = j.new_balance;
-      if(liveBalance) liveBalance.textContent = Number(bal).toLocaleString('tr-TR');
-      const chip=document.getElementById('limitChip');
-      if(chip) chip.textContent = `${j.today_count} / ${DAILY_LIMIT} izlendi`;
-      if(watchResult) { watchResult.innerHTML = `<div style="background:linear-gradient(135deg, rgba(0,230,118,0.12), rgba(0,229,255,0.12));border:1px solid rgba(0,230,118,0.3);border-radius:16px;padding:16px;display:flex;gap:14px;align-items:center"><div style="width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg, #00E676, #00B8CC);display:grid;place-items:center;font-size:20px">◈</div><div><b style="color:#7CFFB2">+${j.earned} D-Coin kazandın!</b><br><span class="dg-muted" style="font-size:12px">Bakiyen: <b style="color:var(--amber)">${bal} D-Coin</b> • Bugün ${j.today_count}/${DAILY_LIMIT}</span></div><span style="margin-left:auto;font:800 12px JetBrains Mono,monospace;background:rgba(0,230,118,0.15);color:#7CFFB2;padding:6px 10px;border-radius:999px">✓ EKLENDİ</span></div>`; watchResult.style.display='block'; }
-      toast(`+${j.earned} D-Coin eklendi!`);
-      if(j.today_count >= DAILY_LIMIT){ document.querySelectorAll('.dg-ad-item').forEach(el=>el.style.opacity='0.5'); }
-    } else {
-      if(watchResult) { watchResult.innerHTML = `<div class="dg-alert dg-alert-error">${j.error||'Ödül verilemedi.'}</div>`; watchResult.style.display='block'; }
-      toast(j.error||'Ödül verilemedi');
-    }
-  }catch(e){
-    if(watchResult){ watchResult.innerHTML = `<div class="dg-alert dg-alert-error">Bağlantı hatası. Tekrar dene.</div>`; watchResult.style.display='block'; }
-  }
-});
-
-document.getElementById('storeSearch')?.addEventListener('input', (e)=>{
-  const q = e.target.value.toLowerCase().trim();
-  document.querySelectorAll('.dg-product').forEach(card=>{
-    const n = card.dataset.name||'';
-    card.style.display = !q || n.includes(q) ? '' : 'none';
-  });
-});
-
-async function purchase(itemId, method){
-  if(!IS_LOGGED){ location.href='login.php'; return; }
-  const ok = confirm(method==='dcoin' ? 'D-Coin ile satın alınsın mı? Bakiyenden düşülecek.' : 'Nakit satın alma oluşturulsun mu? (Demo: anında teslim)');
-  if(!ok) return;
-  try{
-    const r = await fetch('api/purchase.php', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({store_item_id:itemId, payment_method:method, csrf:'<?=csrf_token()?>'})
-    });
-    const j = await r.json();
-    if(j.ok){
-      document.getElementById('modalTitle').textContent = j.payment_method==='dcoin' ? 'Teslim edildi — D-Coin ile' : 'Teslim edildi — Nakit';
-      document.getElementById('modalDesc').textContent = j.item_name + ' için anahtarın hazır. Kopyalayıp kullanabilirsin.';
-      document.getElementById('modalKeyText').textContent = j.delivered_key;
-      document.getElementById('modalKey').style.display='flex';
-      document.getElementById('purchaseModal').classList.add('open');
-      if(j.new_balance!==undefined && liveBalance) liveBalance.textContent = Number(j.new_balance).toLocaleString('tr-TR');
-      toast('Satın alma başarılı!');
-    } else {
-      toast(j.error||'Satın alma başarısız', 4000);
-    }
-  }catch(e){ toast('Bağlantı hatası'); }
-}
-function closeModal(){ document.getElementById('purchaseModal').classList.remove('open'); }
-function copyKey(){
-  const t=document.getElementById('modalKeyText').textContent;
-  navigator.clipboard.writeText(t).then(()=>toast('Key kopyalandı ✓'));
-}
-</script>
-</body>
-</html>
+<?php include __DIR__ . '/footer.php'; ?>

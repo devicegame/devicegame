@@ -7,7 +7,10 @@ WhatsApp'ta hazır bir mesaj olarak açılır.
 > **D-Coin sistemi de veritabansızdır:** Kullanıcılar, reklam ödülleri,
 > bakiyeler, tek çatı mağaza ve loglar `storage/dg/database.json` içinde
 > tutulur. Kurulum ve yedekleme adımları için **[KURULUM.md](KURULUM.md)**
-> dosyasına bakın. MySQL/phpMyAdmin gerekmez.
+> dosyasına bakın. MySQL/phpMyAdmin gerekmez. D-Coin arayüzleri bu
+> sitenin mevcut tasarımını ve `config.php` içindeki SEO bilgilerini
+> kullanır; `storage/products.json` içindeki mağaza ürünleri D-Coin
+> vitrinine otomatik eşitlenir.
 
 ## Gereksinim
 
