@@ -1,9 +1,11 @@
 <?php
+require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/partials/dcoin-storefront.php';
+
 $page_title = 'Mağaza';
 $page_meta_desc = 'Oyun keyleri, premium hesaplar, abonelikler ve Device Game imzalı ekipmanlar. Sepetini oluştur, siparişini WhatsApp üzerinden saniyeler içinde tamamla.';
-$page_css = ['shop.css'];
-$body_class = 'shop-page';
-include 'header.php';
+$page_css = ['shop.css', 'assets/css/dcoin.css'];
+$body_class = 'shop-page dcoin-page';
 
 $categories = shop_categories();
 $active_category = isset($_GET['kategori']) ? (string)$_GET['kategori'] : '';
@@ -12,10 +14,22 @@ if ($active_category !== '' && !isset($categories[$active_category])) {
 }
 $query = trim((string)($_GET['q'] ?? ''));
 $sort = (string)($_GET['sirala'] ?? '');
+$all_products = shop_products();
 $products = shop_catalog($active_category, $query, $sort);
 
+$dg_login_params = array_filter([
+    'kategori' => $active_category,
+    'q' => $query,
+    'sirala' => $sort,
+], static fn($value): bool => $value !== '');
+$dg_login_query = http_build_query($dg_login_params, '', '&', PHP_QUERY_RFC3986);
+$dg_login_next = 'shop.php' . ($dg_login_query !== '' ? '?' . $dg_login_query : '');
+$dg_context = dg_storefront_context($all_products, $dg_login_next);
+
+include 'header.php';
+
 $all_counts = [];
-foreach (shop_products() as $p) {
+foreach ($all_products as $p) {
     $all_counts[$p['category']] = ($all_counts[$p['category']] ?? 0) + 1;
 }
 $is_filtered = $active_category !== '' || $query !== '';
@@ -28,7 +42,7 @@ $is_filtered = $active_category !== '' || $query !== '';
             <h1 class="seq" style="--d:.15s">Oyunu seç,<br>gerisini <em>bize bırak.</em></h1>
             <p class="shop-hero-desc seq" style="--d:.3s">
                 Oyun keyleri, premium hesaplar ve stüdyo imzalı ekipmanlar.
-                Sepetini oluştur, siparişini WhatsApp'ta tek mesajla onayla; teslimatı biz hallederiz.
+                Sepetini oluşturup WhatsApp'ta onayla ya da D-Coin bakiyenle hemen al; teslimatı biz hallederiz.
             </p>
             <div class="shop-hero-actions seq" style="--d:.4s">
                 <a href="#katalog" class="btn btn-primary">Kataloğa göz at</a>
@@ -114,6 +128,7 @@ $is_filtered = $active_category !== '' || $query !== '';
                 </form>
                 <a class="btn btn-ghost" href="product.php?slug=<?php echo urlencode($spotlight['slug']); ?>">Ürünü incele</a>
             </div>
+            <?php dg_storefront_render_buy(dg_storefront_item($dg_context, $spotlight), $dg_context, 'spotlight'); ?>
         </div>
     </article>
 </section>
@@ -309,4 +324,5 @@ if (count($viewed_products) >= 2):
     </div>
 </section>
 
+<?php dg_storefront_render_assets($dg_context); ?>
 <?php include 'footer.php'; ?>

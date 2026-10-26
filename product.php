@@ -22,10 +22,16 @@ if (!$product) {
     exit;
 }
 
+require_once __DIR__ . '/partials/dcoin-storefront.php';
+$current_url = 'product.php?slug=' . urlencode($product['slug']);
+$dg_context = dg_storefront_context(shop_products(), $current_url);
+$dg_item = dg_storefront_item($dg_context, $product);
+$dg_price = $dg_item ? (int)($dg_item['price_dcoin'] ?? 0) : 0;
+
 $page_title = $product['name'];
 $page_meta_desc = $product['desc'];
-$page_css = ['shop.css'];
-$body_class = 'shop-page has-bar';
+$page_css = ['shop.css', 'assets/css/dcoin.css'];
+$body_class = 'shop-page has-bar dcoin-page';
 include 'header.php';
 
 // Son bakılanlar (en fazla 4 ürün)
@@ -44,7 +50,6 @@ usort($related, fn($a, $b) => abs($a['price'] - $product['price']) <=> abs($b['p
 $related = array_slice($related, 0, 4);
 
 $wa_question = 'Merhaba, "' . $product['name'] . '" hakkında bilgi almak istiyorum. (' . money($product['price']) . ')';
-$current_url = 'product.php?slug=' . urlencode($product['slug']);
 ?>
 
 <div class="pdp">
@@ -98,6 +103,9 @@ $current_url = 'product.php?slug=' . urlencode($product['slug']);
                 <?php if ($discount > 0): ?>
                     <span class="pdp-save">%<?php echo $discount; ?> indirim</span>
                 <?php endif; ?>
+                <?php if ($dg_item && $dg_price > 0): ?>
+                    <span class="pdp-dcoin-price">veya <b><?php echo number_format($dg_price, 0, ',', '.'); ?> D-Coin</b></span>
+                <?php endif; ?>
                 <span class="pdp-stock">
                     <span class="pulse" aria-hidden="true"></span>
                     <?php if (!empty($product['stock']) && $product['stock'] <= 10): ?>
@@ -137,10 +145,12 @@ $current_url = 'product.php?slug=' . urlencode($product['slug']);
                 <input type="hidden" name="redirect" value="<?php echo e($current_url); ?>">
             </form>
 
+            <?php dg_storefront_render_buy($dg_item, $dg_context, 'detail'); ?>
+
             <dl class="pdp-meta">
                 <div class="pdp-meta-row"><dt>Teslimat</dt><dd><?php echo e($product['delivery']); ?></dd></div>
                 <div class="pdp-meta-row"><dt>Platform</dt><dd><?php echo e($product['platform']); ?></dd></div>
-                <div class="pdp-meta-row"><dt>Ödeme</dt><dd>Havale / EFT</dd></div>
+                <div class="pdp-meta-row"><dt>Ödeme</dt><dd>Havale / EFT<?php echo ($dg_item && $dg_price > 0) ? ' veya D-Coin' : ''; ?></dd></div>
                 <div class="pdp-meta-row"><dt>Destek</dt><dd>WhatsApp · sipariş sonrası 7 gün</dd></div>
             </dl>
 
@@ -174,8 +184,13 @@ $current_url = 'product.php?slug=' . urlencode($product['slug']);
     <div class="mobile-bar-info">
         <span><?php echo e($product['name']); ?></span>
         <b><?php echo e(money($product['price'])); ?></b>
+        <?php if ($dg_item && $dg_price > 0): ?>
+            <small class="mobile-dcoin-price"><?php echo number_format($dg_price, 0, ',', '.'); ?> D-Coin</small>
+        <?php endif; ?>
     </div>
+    <?php dg_storefront_render_buy($dg_item, $dg_context, 'mobile'); ?>
     <button type="submit" form="buy-form" name="action" value="add" class="btn btn-primary">Sepete ekle</button>
 </div>
 
+<?php dg_storefront_render_assets($dg_context); ?>
 <?php include 'footer.php'; ?>

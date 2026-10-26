@@ -573,6 +573,18 @@ function dg_enrich_store_items(array $data, array $items): array {
     return $out;
 }
 
+/** Satın alma kaydının WhatsApp/destek takibinde kullanılacak sipariş kodu. */
+function dg_purchase_order_code(array $purchase): string {
+    $code = trim((string)($purchase['order_code'] ?? ''));
+    if ($code !== '') return $code;
+    if (($purchase['delivery_type'] ?? '') === 'order_code') {
+        $legacyCode = trim((string)($purchase['delivered_key'] ?? ''));
+        if ($legacyCode !== '') return $legacyCode;
+    }
+    $id = (int)($purchase['id'] ?? 0);
+    return $id > 0 ? 'DG-' . $id : '';
+}
+
 /** Eski mağaza ürünleri ilk kez içe aktarılırken kullanılacak D-Coin karşılığı. */
 function dg_legacy_dcoin_price(float $priceTl): int {
     return max(1, (int)round($priceTl / 6));

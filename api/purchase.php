@@ -73,6 +73,7 @@ try {
         }
 
         $purchaseId = dg_next_id($data, 'purchases');
+        $orderCode = 'DG-' . $purchaseId . '-' . strtoupper(substr(bin2hex(random_bytes(3)), 0, 6));
         $storeKeyId = null;
         $delivered = '';
         $deliveryType = 'order_code';
@@ -90,7 +91,7 @@ try {
             // sipariş/teslimat takibinde kullanılacak sipariş kodudur.
             $data['store_items'][$itemIndex]['stock'] = max(0, (int)($data['store_items'][$itemIndex]['stock'] ?? 0) - 1);
             $data['store_items'][$itemIndex]['updated_at'] = dg_now();
-            $delivered = 'DG-' . $purchaseId . '-' . strtoupper(substr(bin2hex(random_bytes(3)), 0, 6));
+            $delivered = $orderCode;
         }
 
         $purchase = [
@@ -104,6 +105,7 @@ try {
             'price_paid_dcoin' => $method === 'dcoin' ? $priceDcoin : null,
             'delivered_key' => $delivered,
             'delivery_type' => $deliveryType,
+            'order_code' => $orderCode,
             'created_at' => dg_now(),
         ];
         $data['purchases'][] = $purchase;
@@ -112,6 +114,8 @@ try {
         $newBalance = (int)$data['users'][$userIndex]['dcoin_balance'];
         $out = [
             'ok' => true,
+            'purchase_id' => $purchaseId,
+            'order_code' => $orderCode,
             'payment_method' => $method,
             'item_name' => (string)$item['name'],
             'delivered_key' => $delivered,

@@ -51,6 +51,8 @@ cd tools && npm install && npm start
 | `blog.css` | Blog sayfalarına özel stiller |
 | `partials/product-card.php` | Tek ürün kartı (vitrin, arama, benzer ürünler) |
 | `partials/slider.php` | Mağaza vitrini slider'ı (ana sayfa + mağaza) |
+| `partials/dcoin-storefront.php` | Mağaza/ürün sayfalarında ortak D-Coin fiyatı ve satın alma düğmeleri |
+| `partials/dcoin-purchase-modal.php` | Satın alma sonucu, sipariş kodu ve WhatsApp paylaşım penceresi |
 | `data/products.php` | **Varsayılan ürün kataloğu** (ilk açılışta `storage/products.json`'a kopyalanır) |
 | `lib/shop.php` | Sepet, fiyat, CSRF, sipariş, slider ve WhatsApp yardımcıları |
 | `shop.css` | Mağazaya özel stiller (mevcut `style.css` üzerine) |

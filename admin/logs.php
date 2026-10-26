@@ -27,6 +27,7 @@ foreach (dg_sort_newest($data['purchases'] ?? [], 'created_at') as $r) {
   $r['username'] = $u['username'] ?? ('#' . (int)($r['user_id'] ?? 0));
   $r['email'] = $u['email'] ?? '';
   $r['name'] = $items_by_id[(int)($r['store_item_id'] ?? 0)]['name'] ?? ($r['item_name'] ?? 'Silinmiş ürün');
+  $r['order_code'] = dg_purchase_order_code($r);
   $all_purchase_rows[] = $r;
 }
 
@@ -45,8 +46,8 @@ if (isset($_GET['export']) && $_GET['export']==='purchase') {
   header('Content-Disposition: attachment; filename="satin-alim-'.date('Y-m-d').'.csv"');
   echo "\xEF\xBB\xBF";
   $out=fopen('php://output','w');
-  fputcsv($out,['ID','Kullanıcı','E-posta','Ürün','Ödeme','Tutar','Key','Tarih']);
-  foreach($all_purchase_rows as $r) fputcsv($out,[$r['id'],$r['username'],$r['email'],$r['name'],$r['payment_method'],$r['payment_method']=='dcoin'?$r['price_paid_dcoin']:$r['price_paid_tl'],$r['delivered_key'],$r['created_at']]);
+  fputcsv($out,['ID','Sipariş Kodu','Kullanıcı','E-posta','Ürün','Ödeme','Tutar','Key / Teslimat','Tarih']);
+  foreach($all_purchase_rows as $r) fputcsv($out,[$r['id'],$r['order_code'],$r['username'],$r['email'],$r['name'],$r['payment_method'],$r['payment_method']=='dcoin'?$r['price_paid_dcoin']:$r['price_paid_tl'],$r['delivered_key'],$r['created_at']]);
   exit;
 }
 
@@ -112,7 +113,9 @@ admin_head('Log & İzleme Geçmişi');
     $filtered = array_values(array_filter($filtered, fn(array $r): bool =>
       strpos(dg_casefold((string)$r['username']), $needle) !== false ||
       strpos(dg_casefold((string)$r['email']), $needle) !== false ||
-      strpos(dg_casefold((string)$r['name']), $needle) !== false
+      strpos(dg_casefold((string)$r['name']), $needle) !== false ||
+      strpos(dg_casefold((string)($r['order_code'] ?? '')), $needle) !== false ||
+      strpos(dg_casefold((string)($r['delivered_key'] ?? '')), $needle) !== false
     ));
   }
   $total = count($filtered);
@@ -123,11 +126,11 @@ admin_head('Log & İzleme Geçmişi');
   <div class="dg-card-head"><h2>Mağaza Satın Alma Geçmişi</h2><span class="dg-badge"><?=$total?> KAYIT</span></div>
   <div class="dg-table-wrap" style="border:none;border-radius:0">
   <table class="dg-table">
-    <thead><tr><th>#</th><th>Kullanıcı</th><th>Ürün</th><th>Ödeme</th><th>Tutar</th><th>Key</th><th>Tarih</th></tr></thead>
+    <thead><tr><th>#</th><th>Kullanıcı</th><th>Ürün</th><th>Ödeme</th><th>Tutar</th><th>Sipariş / Key</th><th>Tarih</th></tr></thead>
     <tbody>
     <?php if(!$rows): ?><tr><td colspan="7" class="dg-empty">Kayıt yok</td></tr><?php endif; ?>
     <?php foreach($rows as $r): ?>
-      <tr><td><span class="dg-chip">#<?= (int)$r['id'] ?></span></td><td><b><?=e($r['username'])?></b><br><small style="color:var(--muted)"><?=e($r['email'])?></small></td><td><?=e($r['name'])?></td><td><?php if($r['payment_method']=='dcoin'): ?><span style="background:rgba(244,193,93,0.15);color:var(--amber);font:700 10px Instrument Sans,sans-serif;padding:4px 8px;border-radius:999px;border:1px solid rgba(244,193,93,0.25)">D-Coin</span><?php else: ?><span style="background:rgba(79,224,160,0.12);color:#A7F3C9;font:700 10px Instrument Sans,sans-serif;padding:4px 8px;border-radius:999px;border:1px solid rgba(79,224,160,0.2)">Nakit</span><?php endif;?></td><td><?php if($r['payment_method']=='dcoin'): ?><b>◈ <?= (int)$r['price_paid_dcoin'] ?></b><?php else: ?><b><?=tl_format($r['price_paid_tl'])?></b><?php endif;?></td><td><code style="background:rgba(79,224,160,0.08);border:1px solid rgba(79,224,160,0.15);padding:4px 8px;border-radius:8px;font:600 11px Instrument Sans,sans-serif;color:var(--cyan)"><?=e($r['delivered_key'])?></code></td><td><small class="dg-mini"><?=e($r['created_at'])?></small></td></tr>
+      <tr><td><span class="dg-chip">#<?= (int)$r['id'] ?></span></td><td><b><?=e($r['username'])?></b><br><small style="color:var(--muted)"><?=e($r['email'])?></small></td><td><?=e($r['name'])?></td><td><?php if($r['payment_method']=='dcoin'): ?><span style="background:rgba(244,193,93,0.15);color:var(--amber);font:700 10px Instrument Sans,sans-serif;padding:4px 8px;border-radius:999px;border:1px solid rgba(244,193,93,0.25)">D-Coin</span><?php else: ?><span style="background:rgba(79,224,160,0.12);color:#A7F3C9;font:700 10px Instrument Sans,sans-serif;padding:4px 8px;border-radius:999px;border:1px solid rgba(79,224,160,0.2)">Nakit</span><?php endif;?></td><td><?php if($r['payment_method']=='dcoin'): ?><b>◈ <?= (int)$r['price_paid_dcoin'] ?></b><?php else: ?><b><?=tl_format($r['price_paid_tl'])?></b><?php endif;?></td><td><small style="display:block;color:var(--muted);font-size:10px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px">Sipariş: <?=e($r['order_code'])?></small><code style="background:rgba(79,224,160,0.08);border:1px solid rgba(79,224,160,0.15);padding:4px 8px;border-radius:8px;font:600 11px Instrument Sans,sans-serif;color:var(--cyan)"><?=e($r['delivered_key'])?></code></td><td><small class="dg-mini"><?=e($r['created_at'])?></small></td></tr>
     <?php endforeach; ?>
     </tbody>
   </table>

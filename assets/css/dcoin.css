@@ -58,6 +58,41 @@
 .dcoin-buy:disabled,
 .dcoin-cash:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 .dcoin-unavailable { color: var(--mist); font-size: 0.84rem; }
+.dcoin-buy-row.is-spotlight { width: 100%; margin-top: 0.25rem; }
+
+/* Ürün detayında D-Coin ödeme paneli */
+.pdp-dcoin-price {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.42rem 0.75rem; border: 1px solid rgba(79, 224, 160, 0.35);
+    border-radius: 999px; background: rgba(79, 224, 160, 0.08);
+    color: var(--mist); font-size: 0.86rem; white-space: nowrap;
+}
+.pdp-dcoin-price b { color: var(--signal); font-variant-numeric: tabular-nums; }
+.dcoin-detail-panel {
+    margin: 0 0 1.25rem; padding: clamp(1rem, 2.5vw, 1.35rem);
+    border: 1px solid rgba(79, 224, 160, 0.32); border-radius: 20px;
+    background:
+        radial-gradient(420px 220px at 100% 0%, rgba(79, 224, 160, 0.13), transparent 70%),
+        linear-gradient(180deg, rgba(24, 55, 43, 0.72), rgba(14, 36, 28, 0.72));
+}
+.dcoin-detail-panel.is-unavailable { border-color: var(--line); background: rgba(17, 42, 33, 0.45); }
+.dcoin-detail-copy .eyebrow { margin-bottom: 0.55rem; }
+.dcoin-detail-title {
+    display: block; font-family: var(--font-display);
+    font-size: clamp(1.35rem, 2.4vw, 1.8rem); line-height: 1.05; letter-spacing: -0.03em;
+}
+.dcoin-detail-copy p:last-child { color: var(--mist); font-size: 0.92rem; margin-top: 0.55rem; max-width: 62ch; }
+.dcoin-detail-action {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 1rem; flex-wrap: wrap; margin-top: 1.1rem; padding-top: 1rem;
+    border-top: 1px solid rgba(190, 225, 208, 0.14);
+}
+.dcoin-detail-panel .dcoin-price { font-size: 1.35rem; }
+.dcoin-detail-panel .dcoin-buy { min-height: 3.05rem; padding: 0.8rem 1.35rem; font-size: 0.94rem; }
+.mobile-dcoin-price { color: var(--signal); font-size: 0.76rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.dcoin-mobile-action { display: inline-flex; margin-left: auto; }
+.dcoin-mobile-action .btn { min-height: 2.65rem; padding: 0.68rem 0.85rem !important; font-size: 0.82rem !important; }
+.mobile-bar .dcoin-mobile-action + .btn { margin-left: 0; }
 
 .store-tools {
     display: flex; align-items: center; justify-content: space-between;
@@ -232,8 +267,30 @@
     border-radius: 14px; background: rgba(79, 224, 160, 0.08);
 }
 .dcoin-key-box code { color: var(--signal); font-weight: 700; overflow-wrap: anywhere; }
-.dcoin-modal-actions { display: flex; gap: 0.7rem; margin-top: 1.25rem; }
-.dcoin-modal-actions .btn { flex: 1; width: auto !important; }
+.dcoin-modal [hidden] { display: none !important; }
+.dcoin-order-code-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+    margin-top: 0.75rem; padding: 0.78rem 0.9rem;
+    border: 1px solid var(--line); border-radius: 14px;
+    background: rgba(190, 225, 208, 0.05);
+}
+.dcoin-order-code-meta { display: flex; flex-direction: column; gap: 0.12rem; min-width: 0; }
+.dcoin-order-code-meta span {
+    color: var(--mist); font-size: 0.7rem; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+}
+.dcoin-order-code-meta code { color: var(--bone); font-weight: 700; overflow-wrap: anywhere; }
+.dcoin-order-code-row .btn { width: auto !important; flex: none; padding: 0.55rem 0.8rem; font-size: 0.82rem; }
+.dcoin-modal-note { color: var(--mist); font-size: 0.84rem; margin-top: 0.85rem; }
+.dcoin-modal-actions { display: flex; gap: 0.7rem; margin-top: 1.25rem; flex-wrap: wrap; }
+.dcoin-modal-actions .btn { flex: 1 1 180px; width: auto !important; }
+.dcoin-whatsapp-btn {
+    background: #25D366; border-color: #25D366; color: #06281A;
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.55rem;
+    font-weight: 700;
+}
+.dcoin-whatsapp-btn:hover { background: #39E27A; border-color: #39E27A; color: #06281A; transform: translateY(-2px); }
+.dcoin-whatsapp-btn svg { flex: none; }
 .dcoin-toast {
     position: fixed; left: 50%; bottom: 1.25rem; z-index: 240;
     transform: translate(-50%, 16px); opacity: 0; pointer-events: none;
@@ -308,6 +365,9 @@
     .store-tools .search-box { max-width: none; }
 }
 @media (max-width: 560px) {
+    .dcoin-detail-action { align-items: stretch; flex-direction: column; }
+    .dcoin-detail-panel .dcoin-actions,
+    .dcoin-detail-panel .dcoin-buy { width: 100% !important; }
     .dcoin-buy-row { align-items: flex-start; }
     .dcoin-actions { width: 100%; }
     .dcoin-buy,

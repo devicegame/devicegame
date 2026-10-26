@@ -93,7 +93,8 @@ echo '<h2>2. Gerekli Dosyalar</h2><pre>';
 $required = [
     'db.php', 'index.php', 'login.php', 'register.php', 'auth.php', 'logout.php',
     'config.php', 'header.php', 'footer.php', 'style.css', 'shop.css', 'script.js',
-    'lib/shop.php', 'partials/slider.php', 'storage/products.json',
+    'lib/shop.php', 'partials/slider.php', 'partials/product-card.php',
+    'partials/dcoin-storefront.php', 'partials/dcoin-purchase-modal.php', 'storage/products.json',
     'assets/css/devicegame.css', 'assets/css/dcoin.css', 'assets/js/dcoin.js',
     'admin/index.php', 'admin/ads.php', 'admin/users.php',
     'admin/store.php', 'admin/blog.php', 'admin/logs.php', 'api/watch_start.php', 'api/watch_complete.php', 'api/purchase.php',

@@ -130,6 +130,7 @@ $dg_config = [
     'remaining' => $remaining,
     'ads' => $ads_for_js,
     'activeAdId' => $active_ad ? (int)$active_ad['id'] : null,
+    'loginNext' => 'index.php',
 ];
 
 $flash = flash_get();
@@ -523,25 +524,11 @@ include __DIR__ . '/header.php';
     </div>
 </section>
 
-<div class="dcoin-modal" id="purchaseModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-    <div class="dcoin-modal-bg" data-close-modal></div>
-    <div class="dcoin-modal-card">
-        <p class="eyebrow">Teslimat</p>
-        <h3 id="modalTitle">Teslimat hazır.</h3>
-        <p id="modalDesc"></p>
-        <span class="dcoin-code-label" id="modalCodeLabel">Sipariş kodu</span>
-        <div class="dcoin-key-box">
-            <code id="modalKeyText"></code>
-            <button type="button" class="btn btn-ghost" id="copyDeliveryCode">Kopyala</button>
-        </div>
-        <div class="dcoin-modal-actions">
-            <button type="button" class="btn btn-primary" data-close-modal>Kapat</button>
-        </div>
-    </div>
-</div>
+<?php include __DIR__ . '/partials/dcoin-purchase-modal.php'; ?>
 
 <div class="dcoin-toast" id="dcoinToast" role="status" aria-live="polite"></div>
 
+<?php $dg_config['whatsapp'] = preg_replace('/\D+/', '', (string)($whatsapp ?? '')); ?>
 <script id="dg-config" type="application/json"><?php echo json_encode($dg_config, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?></script>
 <script src="assets/js/dcoin.js" defer></script>
 
