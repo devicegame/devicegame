@@ -38,9 +38,13 @@ if (!defined('DG_SHOP')) {
         }
     }
 
-    function csrf_token(): string
-    {
-        return $_SESSION['csrf'] ?? '';
+    // db.php ile ayni isimde fonksiyon tanimlar — ikisi ayni sayfada yuklenirse
+    // "Cannot redeclare csrf_token()" fatal hatasi (bos 500) olusur. Guard sart.
+    if (!function_exists('csrf_token')) {
+        function csrf_token(): string
+        {
+            return $_SESSION['csrf'] ?? '';
+        }
     }
 
     function csrf_valid(): bool

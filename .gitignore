@@ -1,0 +1,19 @@
+# Gizli veritabani ayarlari (ornek: db_config.example.php)
+db_config.php
+.env
+
+# Hosting hata loglari
+error_log
+*.log
+
+# Yuklenen videolar (buyuk dosyalar repoya girmesin)
+uploads/*.mp4
+uploads/*.webm
+uploads/*.mov
+!uploads/.htaccess
+!uploads/index.html
+
+# Gecici teshis dosyalari
+test_db.php
+hata_gor.php
+hata2.php
