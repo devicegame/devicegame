@@ -56,7 +56,7 @@ admin_head('Log & İzleme Geçmişi');
 <div style="display:flex;align-items:end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px">
   <div>
     <p class="dg-kicker">LOGS // AUDIT TRAIL</p>
-    <h1 style="font-family:Orbitron,monospace;font-weight:800;font-size:22px">Log & İzleme Geçmişi</h1>
+    <h1 style="font-family:Bricolage Grotesque,sans-serif;font-weight:800;font-size:22px">Log & İzleme Geçmişi</h1>
     <p class="dg-muted" style="font-size:13px">Kim, ne zaman, ne izledi ve ne satın aldı — tam denetim.</p>
   </div>
   <div style="display:flex;gap:8px">
@@ -97,7 +97,7 @@ admin_head('Log & İzleme Geçmişi');
     <tbody>
     <?php if(!$rows): ?><tr><td colspan="7" class="dg-empty">Kayıt yok</td></tr><?php endif; ?>
     <?php foreach($rows as $r): ?>
-      <tr><td><span class="dg-chip">#<?= (int)$r['id'] ?></span></td><td><b><?=e($r['username'])?></b></td><td style="font-size:12px;color:var(--muted)"><?=e($r['email'])?></td><td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?=e($r['title'])?></td><td><span style="background:linear-gradient(135deg,#FFD60A,#FF8C00);color:#1a1200;font:700 11px JetBrains Mono,monospace;padding:4px 8px;border-radius:999px">+<?= (int)$r['earned_dcoin'] ?></span></td><td><small class="dg-mini"><?=e($r['watched_at'])?></small></td><td><small class="dg-mini"><?=e($r['ip_address'])?></small></td></tr>
+      <tr><td><span class="dg-chip">#<?= (int)$r['id'] ?></span></td><td><b><?=e($r['username'])?></b></td><td style="font-size:12px;color:var(--muted)"><?=e($r['email'])?></td><td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?=e($r['title'])?></td><td><span style="background:linear-gradient(135deg,#F4C15D,#C4644A);color:#1a1200;font:700 11px Instrument Sans,sans-serif;padding:4px 8px;border-radius:999px">+<?= (int)$r['earned_dcoin'] ?></span></td><td><small class="dg-mini"><?=e($r['watched_at'])?></small></td><td><small class="dg-mini"><?=e($r['ip_address'])?></small></td></tr>
     <?php endforeach; ?>
     </tbody>
   </table>
@@ -127,7 +127,7 @@ admin_head('Log & İzleme Geçmişi');
     <tbody>
     <?php if(!$rows): ?><tr><td colspan="7" class="dg-empty">Kayıt yok</td></tr><?php endif; ?>
     <?php foreach($rows as $r): ?>
-      <tr><td><span class="dg-chip">#<?= (int)$r['id'] ?></span></td><td><b><?=e($r['username'])?></b><br><small style="color:var(--muted)"><?=e($r['email'])?></small></td><td><?=e($r['name'])?></td><td><?php if($r['payment_method']=='dcoin'): ?><span style="background:rgba(255,214,10,0.15);color:var(--amber);font:700 10px JetBrains Mono,monospace;padding:4px 8px;border-radius:999px;border:1px solid rgba(255,214,10,0.25)">D-Coin</span><?php else: ?><span style="background:rgba(0,230,118,0.12);color:#7CFFB2;font:700 10px JetBrains Mono,monospace;padding:4px 8px;border-radius:999px;border:1px solid rgba(0,230,118,0.2)">Nakit</span><?php endif;?></td><td><?php if($r['payment_method']=='dcoin'): ?><b>◈ <?= (int)$r['price_paid_dcoin'] ?></b><?php else: ?><b><?=tl_format($r['price_paid_tl'])?></b><?php endif;?></td><td><code style="background:rgba(0,229,255,0.08);border:1px solid rgba(0,229,255,0.15);padding:4px 8px;border-radius:8px;font:600 11px JetBrains Mono,monospace;color:var(--cyan)"><?=e($r['delivered_key'])?></code></td><td><small class="dg-mini"><?=e($r['created_at'])?></small></td></tr>
+      <tr><td><span class="dg-chip">#<?= (int)$r['id'] ?></span></td><td><b><?=e($r['username'])?></b><br><small style="color:var(--muted)"><?=e($r['email'])?></small></td><td><?=e($r['name'])?></td><td><?php if($r['payment_method']=='dcoin'): ?><span style="background:rgba(244,193,93,0.15);color:var(--amber);font:700 10px Instrument Sans,sans-serif;padding:4px 8px;border-radius:999px;border:1px solid rgba(244,193,93,0.25)">D-Coin</span><?php else: ?><span style="background:rgba(79,224,160,0.12);color:#A7F3C9;font:700 10px Instrument Sans,sans-serif;padding:4px 8px;border-radius:999px;border:1px solid rgba(79,224,160,0.2)">Nakit</span><?php endif;?></td><td><?php if($r['payment_method']=='dcoin'): ?><b>◈ <?= (int)$r['price_paid_dcoin'] ?></b><?php else: ?><b><?=tl_format($r['price_paid_tl'])?></b><?php endif;?></td><td><code style="background:rgba(79,224,160,0.08);border:1px solid rgba(79,224,160,0.15);padding:4px 8px;border-radius:8px;font:600 11px Instrument Sans,sans-serif;color:var(--cyan)"><?=e($r['delivered_key'])?></code></td><td><small class="dg-mini"><?=e($r['created_at'])?></small></td></tr>
     <?php endforeach; ?>
     </tbody>
   </table>

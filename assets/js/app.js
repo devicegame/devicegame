@@ -1,3 +1,2 @@
-// DeviceGame — global helpers (opsiyonel)
-// Şu an tüm JS index.php içinde inline. Bu dosya gelecek eklentiler için.
-console.log('%c◉ DeviceGame — Cyberpunk Edition','color:#00E5FF;font-weight:800;');
+// Device Game — yardımcılar için ayrılmış dosya.
+// Ana sayfadaki D-Coin davranışları assets/js/dcoin.js içindedir.

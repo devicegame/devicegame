@@ -8,7 +8,7 @@ DeviceGame'in D-Coin sistemi artık **Vanilla PHP + JSON dosya depolama** ile ç
 storage/dg/database.json
 ```
 
-Bu dosya ilk sayfa açılışında otomatik oluşturulur ve örnek kullanıcı/reklam/ürün verileriyle doldurulur.
+Bu dosya ilk sayfa açılışında otomatik oluşturulur. Kullanıcı ve video kayıtlarının yanında, eski mağazanın `storage/products.json` içindeki gerçek ürün kataloğu D-Coin mağazasına otomatik aktarılır; uydurma örnek ürün kullanılmaz.
 
 ---
 
@@ -31,7 +31,7 @@ Bu dosya ilk sayfa açılışında otomatik oluşturulur ve örnek kullanıcı/r
 
 Proje dosyalarını hostingindeki `public_html` (veya alan adının kök klasörü) içine yükle.
 
-Eski dosya tabanlı mağaza dosyaları (`shop.php`, `cart.php`, `admin.php` vb.) durabilir; yeni D-Coin sistemi onlarla çakışmaz.
+Eski tasarım ve dosya tabanlı mağaza (`config.php`, `header.php`, `style.css`, `shop.php`, `product.php`, `cart.php`, `admin.php` vb.) sitenin temelidir. D-Coin katmanı aynı tasarım ve SEO bilgileriyle bu yapının üzerine eklenir; eski katalog değiştiğinde ürünler D-Coin vitrinine de eşitlenir.
 
 ### Eski MySQL sürümünden geliyorsan
 
@@ -110,7 +110,7 @@ Tarayıcıda ana sayfayı aç:
 2. Ana sayfada bir reklam seçip oynat.
 3. Videoyu sonuna kadar izle. İleri sarma kapalıdır; sekme değiştirirsen video durur.
 4. Video bitince D-Coin otomatik eklenir ve sağ üst bakiye güncellenir.
-5. Mağazadan **D-Coin ile Al** de; key anında teslim edilir.
+5. Mağazadan **D-Coin ile Al** de. Key stoklu ürünlerde key teslim edilir; eski katalogdan adet stokla gelen ürünlerde teslimatta kullanılacak bir sipariş kodu oluşturulur.
 6. `/admin/index.php` içinde istatistiklerin değiştiğini kontrol et.
 
 Varsayılan günlük izleme limiti **5**'tir. Admin → Dashboard → Hızlı Ayar bölümünden değiştirilir.
@@ -124,7 +124,7 @@ Varsayılan günlük izleme limiti **5**'tir. Admin → Dashboard → Hızlı Ay
 | `/admin/index.php` | Toplam kullanıcı, dolaşımdaki/dağıtılan D-Coin, izlenen reklam, satılan ürün |
 | `/admin/ads.php` | Reklam ekle/düzenle/sil, aktif/pasif yap, URL veya `.mp4/.webm` yükle |
 | `/admin/users.php` | Kullanıcı ara, D-Coin ekle/çıkar, ban/unban, admin yap/al |
-| `/admin/store.php` | Ürün ekle/düzenle/sil, TL + D-Coin fiyatı, key/stok listesi |
+| `/admin/store.php` | Eski katalog ürünleri + D-Coin ürünleri, TL/D-Coin fiyatı, **adet stok veya tek tek key** yönetimi |
 | `/admin/logs.php` | İzleme ve satın alma logları, arama, CSV export |
 
 ---
@@ -166,7 +166,7 @@ Repo bu dosyayı takip etmez; her hosting kurulumunun kendi canlı verisi ayrıd
 
 1. Önce `database.json` dosyasının yedeğini al.
 2. Dosyayı sil.
-3. Siteyi aç. Sistem örnek verilerle yeni dosya oluşturur.
+3. Siteyi aç. Sistem başlangıç kullanıcı/video verileriyle yeni dosya oluşturur ve eski mağaza kataloğunu yeniden aktarır.
 
 > Dosyayı elle düzenlersen geçerli JSON bıraktığından emin ol. Bozuk JSON'da sistem veriyi kendiliğinden silmez; hata gösterir.
 
@@ -216,7 +216,7 @@ siteadın.com/diagnose.php?sil=1
 
 ### "database.json bozuk görünüyor"
 
-Dosyayı önce yedekle, JSON sözdizimini düzelt. Sıfırlamak istersen yedekten sonra dosyayı sil; site örnek verilerle yeniden oluşturur.
+Dosyayı önce yedekle, JSON sözdizimini düzelt. Sıfırlamak istersen yedekten sonra dosyayı sil; site başlangıç verileriyle yeniden oluşturur ve eski ürün kataloğunu tekrar bağlar.
 
 ### Hâlâ boş 500
 
