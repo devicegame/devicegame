@@ -1,32 +1,24 @@
 <?php
+// index.php — DeviceGame Ana Sayfa (hataya dayanıklı)
+declare(strict_types=1);
 require_once __DIR__ . '/db.php';
 
-$user = current_user($pdo);
-$is_logged = $user !== null;
+// Hata yakala — DB tabloları yoksa bile sayfa 500 yerine uyarı göstersin
+$user = null; $is_logged = false; $daily_limit = DG_DAILY_LIMIT_DEFAULT; $today_count = 0; $remaining = 0;
+$ads = []; $active_ad = null; $store_items = []; $my_purchases = [];
+$db_error = null;
 
-// Ayarlar
-$daily_limit = daily_watch_limit($pdo);
-$today_count = $is_logged ? today_watch_count($pdo, (int)$user['id']) : 0;
-$remaining   = max(0, $daily_limit - $today_count);
-
-// Aktif reklamlar
-$ads = $pdo->query("SELECT * FROM ads WHERE is_active=1 ORDER BY created_at DESC")->fetchAll();
-if (!$ads) {
-  // Hiç reklam yoksa boş dizi
-  $ads = [];
-}
-$active_ad = $ads[0] ?? null;
-
-// Mağaza ürünleri
-$store_items = $pdo->query("SELECT si.*, (SELECT COUNT(*) FROM store_keys WHERE store_item_id=si.id AND is_used=0) as keys_left FROM store_items WHERE is_active=1 ORDER BY created_at DESC")->fetchAll();
-
-// Kullanıcının satın alımları (son 10)
-$my_purchases = [];
-if ($is_logged) {
-  $st = $pdo->prepare("SELECT p.*, si.name as item_name FROM purchases p JOIN store_items si ON si.id=p.store_item_id WHERE p.user_id=? ORDER BY p.created_at DESC LIMIT 10");
-  $st->execute([(int)$user['id']]);
-  $my_purchases = $st->fetchAll();
-}
+try { $user = current_user($pdo); $is_logged = $user !== null; } catch (Throwable $e) { $db_error = $e->getMessage(); error_log('[index user] '.$e->getMessage()); }
+try { $daily_limit = daily_watch_limit($pdo); } catch (Throwable $e) { $db_error = $e->getMessage(); }
+try { if ($is_logged) $today_count = today_watch_count($pdo, (int)$user['id']); $remaining = max(0, $daily_limit - $today_count); } catch (Throwable $e) {}
+try { $ads = $pdo->query("SELECT * FROM ads WHERE is_active=1 ORDER BY created_at DESC")->fetchAll(); if (!$ads) $ads=[]; $active_ad=$ads[0] ?? null; } catch (Throwable $e) { $db_error = $e->getMessage(); $ads=[]; }
+try { $store_items = $pdo->query("SELECT si.*, (SELECT COUNT(*) FROM store_keys WHERE store_item_id=si.id AND is_used=0) as keys_left FROM store_items WHERE is_active=1 ORDER BY created_at DESC")->fetchAll(); } catch (Throwable $e) { $db_error = $e->getMessage(); $store_items=[]; }
+try {
+  if ($is_logged) {
+    $st = $pdo->prepare("SELECT p.*, si.name as item_name FROM purchases p JOIN store_items si ON si.id=p.store_item_id WHERE p.user_id=? ORDER BY p.created_at DESC LIMIT 10");
+    $st->execute([(int)$user['id']]); $my_purchases = $st->fetchAll();
+  }
+} catch (Throwable $e) { $db_error = $e->getMessage(); }
 
 $flash = flash_get();
 $flash_err = flash_error_get();
@@ -74,6 +66,9 @@ $flash_err = flash_error_get();
 <?php if ($flash_err): ?>
 <div class="dg-flash"><div class="dg-flash-inner error"><?=e($flash_err)?></div></div>
 <?php endif; ?>
+<?php if ($db_error): ?>
+<div class="dg-flash"><div class="dg-flash-inner error">⚠️ Veritabanı uyarısı: <?=e($db_error)?> — <a href="diagnose.php" style="color:inherit;text-decoration:underline">diagnose.php ile kontrol et</a></div></div>
+<?php endif; ?>
 
 <main class="dg-wrap">
 
@@ -88,10 +83,10 @@ $flash_err = flash_error_get();
         <a href="#store" class="dg-btn dg-btn-ghost">Mağazayı Keşfet →</a>
       </div>
       <div class="dg-stats" style="margin-top:22px">
-        <div class="dg-stat"><label>Toplam Üye</label><strong><?php $c=$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn(); echo (int)$c; ?></strong><small>Kayıtlı oyuncu</small></div>
-        <div class="dg-stat"><label>Dolaşımdaki D-Coin</label><strong style="color:var(--amber)"><?=number_format((int)$pdo->query("SELECT COALESCE(SUM(dcoin_balance),0) FROM users")->fetchColumn())?></strong><small>Tüm cüzdanlarda</small></div>
-        <div class="dg-stat"><label>İzlenen Reklam</label><strong style="color:var(--cyan)"><?=number_format((int)$pdo->query("SELECT COUNT(*) FROM user_watch_logs")->fetchColumn())?></strong><small>Toplam oynatma</small></div>
-        <div class="dg-stat"><label>Mağaza Satış</label><strong style="color:var(--purple2)"><?=number_format((int)$pdo->query("SELECT COUNT(*) FROM purchases")->fetchColumn())?></strong><small>Teslim edildi</small></div>
+        <div class="dg-stat"><label>Toplam Üye</label><strong><?php try{$c=$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn(); echo (int)$c;}catch(Throwable $e){echo '—';} ?></strong><small>Kayıtlı oyuncu</small></div>
+        <div class="dg-stat"><label>Dolaşımdaki D-Coin</label><strong style="color:var(--amber)"><?php try{echo number_format((int)$pdo->query("SELECT COALESCE(SUM(dcoin_balance),0) FROM users")->fetchColumn());}catch(Throwable $e){echo '—';} ?></strong><small>Tüm cüzdanlarda</small></div>
+        <div class="dg-stat"><label>İzlenen Reklam</label><strong style="color:var(--cyan)"><?php try{echo number_format((int)$pdo->query("SELECT COUNT(*) FROM user_watch_logs")->fetchColumn());}catch(Throwable $e){echo '—';} ?></strong><small>Toplam oynatma</small></div>
+        <div class="dg-stat"><label>Mağaza Satış</label><strong style="color:var(--purple2)"><?php try{echo number_format((int)$pdo->query("SELECT COUNT(*) FROM purchases")->fetchColumn());}catch(Throwable $e){echo '—';} ?></strong><small>Teslim edildi</small></div>
       </div>
     </div>
     <div>
@@ -151,7 +146,7 @@ $flash_err = flash_error_get();
     </div>
 
     <?php if (empty($ads)): ?>
-      <div class="dg-card"><div class="dg-empty">Henüz aktif reklam yok. Admin panelden ekleyin.</div></div>
+      <div class="dg-card"><div class="dg-empty">Henüz aktif reklam yok. Admin panelden ekleyin. <?php if($db_error) echo '<br><small>DB Hatası: '.e($db_error).'</small>'; ?></div></div>
     <?php else: ?>
     <div class="dg-video-grid">
       <!-- Player -->
@@ -231,10 +226,10 @@ $flash_err = flash_error_get();
     <div class="dg-store-grid" id="storeGrid">
       <?php foreach ($store_items as $it):
         $img = $it['image_url'] ?: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=600&q=80';
-        $keys_left = (int)$it['keys_left'];
+        $keys_left = (int)($it['keys_left'] ?? 0);
         $in_stock = $keys_left>0;
       ?>
-      <article class="dg-product" data-name="<?=e(mb_strtolower($it['name'].' '.$it['description']))?>">
+      <article class="dg-product" data-name="<?=e(function_exists('mb_strtolower') ? mb_strtolower($it['name'].' '.($it['description'] ?? ''), 'UTF-8') : strtolower($it['name'].' '.($it['description'] ?? '')))?>">
         <div class="dg-product-img">
           <img src="<?=e($img)?>" alt="<?=e($it['name'])?>" loading="lazy">
           <?php if ($it['price_dcoin']>0): ?><span class="dg-product-badge">◈ <?= (int)$it['price_dcoin'] ?> D-Coin</span><?php endif; ?>
@@ -294,7 +289,7 @@ $flash_err = flash_error_get();
 <footer style="border-top:1px solid var(--line);padding:22px 24px;text-align:center;color:var(--muted);font-size:12px">
   <div style="max-width:1280px;margin:0 auto">
     <p>© <?=date('Y')?> <b style="color:var(--text)">DeviceGame</b> — Oyun dünyasının anahtarı. Tüm hakları saklıdır. <span style="color:var(--cyan)">◉</span> Made for gamers.</p>
-    <p class="dg-mini" style="margin-top:6px">Torbalı, İzmir • info@devicegame.com • WhatsApp: 0551 957 83 50</p>
+    <p class="dg-mini" style="margin-top:6px">Torbalı, İzmir • info@devicegame.com • WhatsApp: 0551 957 83 50 • <a href="diagnose.php" style="color:var(--muted);text-decoration:underline">diagnose</a></p>
   </div>
 </footer>
 
@@ -321,7 +316,7 @@ const IS_LOGGED = <?= $is_logged ? 'true':'false' ?>;
 const DAILY_LIMIT = <?= (int)$daily_limit ?>;
 const TODAY_COUNT = <?= (int)$today_count ?>;
 const REMAINING = <?= (int)$remaining ?>;
-let currentAd = <?= $active_ad ? json_encode($active_ad, JSON_UNESCAPED_UNICODE) : 'null' ?>;
+let currentAd = <?= $active_ad ? json_encode($active_ad, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) : 'null' ?>;
 let watchToken = null;
 let watchStartTime = 0;
 let hasRewarded = false;
@@ -350,24 +345,22 @@ function loadAd(ad){
   currentAd = ad;
   hasRewarded = false;
   watchToken = null;
-  watchResult.style.display='none';
+  if(watchResult) watchResult.style.display='none';
   document.querySelectorAll('.dg-ad-item').forEach(el=>{
     try{ const d=JSON.parse(el.dataset.ad); el.classList.toggle('is-active', d.id===ad.id); }catch(e){}
   });
+  if(!video) return;
   video.pause();
   video.src = ad.video_url;
   video.load();
-  rewardChip.textContent = `+${ad.reward_dcoin} D-Coin`;
-  playerStatus.textContent = ad.title;
-  // duration bilgisi geldikten sonra time güncelle
-  video.onloadedmetadata = ()=>{ timeLabel.textContent = `00:00 / ${fmt(video.duration||ad.duration_sec)}`; playOverlay.style.display='grid'; };
-  statusText.textContent='Hazır — oynat';
+  if(rewardChip) rewardChip.textContent = `+${ad.reward_dcoin} D-Coin`;
+  if(playerStatus) playerStatus.textContent = ad.title;
+  video.onloadedmetadata = ()=>{ if(timeLabel) timeLabel.textContent = `00:00 / ${fmt(video.duration||ad.duration_sec)}`; if(playOverlay) playOverlay.style.display='grid'; };
+  if(statusText) statusText.textContent='Hazır — oynat';
 }
 
-if (currentAd) loadAd(currentAd);
-else if (!IS_LOGGED) { /* no ads */ }
+if (currentAd && video) loadAd(currentAd);
 
-// Click on ad list
 document.getElementById('adsList')?.addEventListener('click', (e)=>{
   const item = e.target.closest('.dg-ad-item');
   if(!item) return;
@@ -375,13 +368,10 @@ document.getElementById('adsList')?.addEventListener('click', (e)=>{
   loadAd(ad);
 });
 
-// Play logic
 async function startPlayback(){
   if(!currentAd){ toast('Önce bir reklam seç'); return; }
   if(!IS_LOGGED){ toast('D-Coin kazanmak için giriş yapmalısın — video yine oynayacak'); }
   if(REMAINING<=0 && IS_LOGGED){ toast('Günlük limit doldu! Yarın tekrar gel.'); return; }
-
-  // Anti-cheat: başlangıçta token al
   if(IS_LOGGED){
     try{
       const r = await fetch('api/watch_start.php', {
@@ -395,97 +385,77 @@ async function startPlayback(){
       watchStartTime = Date.now();
     }catch(e){ toast('Bağlantı hatası'); return; }
   }
-
-  playOverlay.style.display='none';
+  if(playOverlay) playOverlay.style.display='none';
   try{ await video.play(); }catch(e){}
-  statusText.textContent='Oynatılıyor...';
+  if(statusText) statusText.textContent='Oynatılıyor...';
 }
 
 bigPlay?.addEventListener('click', startPlayback);
-video.addEventListener('click', ()=>{ if(video.paused) startPlayback(); else video.pause(); });
+video?.addEventListener('click', ()=>{ if(video.paused) startPlayback(); else video.pause(); });
 document.getElementById('pauseBtn')?.addEventListener('click', ()=>{
   if(video.paused) startPlayback(); else video.pause();
 });
 document.getElementById('muteBtn')?.addEventListener('click', ()=>{ video.muted=!video.muted; document.getElementById('muteBtn').textContent = video.muted?'🔇 Sessiz':'🔊 Ses'; });
 
-// Progress & time
-video.addEventListener('timeupdate', ()=>{
+video?.addEventListener('timeupdate', ()=>{
   const cur = video.currentTime||0;
   const dur = video.duration||currentAd?.duration_sec||30;
   const pct = dur? Math.min(100, cur/dur*100):0;
-  progressFill.style.width = pct+'%';
-  timeLabel.textContent = `${fmt(cur)} / ${fmt(dur)}`;
-  // Tam izlendi mi kontrol: %98 ve üstü + ended event
-  if(!hasRewarded && dur && cur/dur >= 0.98){
-    // ended'e yakın, ama ended'i bekle
-  }
+  if(progressFill) progressFill.style.width = pct+'%';
+  if(timeLabel) timeLabel.textContent = `${fmt(cur)} / ${fmt(dur)}`;
 });
-
-video.addEventListener('pause', ()=>{
-  if(!video.ended) { statusText.textContent='Durduruldu — devam etmek için oynat'; document.getElementById('tabChip').textContent='Sekme: Aktif ✓'; }
+video?.addEventListener('pause', ()=>{
+  if(!video.ended && statusText) { statusText.textContent='Durduruldu — devam etmek için oynat'; const chip=document.getElementById('tabChip'); if(chip) chip.textContent='Sekme: Aktif ✓'; }
 });
+video?.addEventListener('play', ()=>{ if(statusText) statusText.textContent='Oynatılıyor... Sekme değiştirme!'; });
 
-video.addEventListener('play', ()=>{ statusText.textContent='Oynatılıyor... Sekme değiştirme!'; });
-
-// ——— ANTI-CHEAT: seeking yasak ———
 let lastTime = 0;
-video.addEventListener('seeking', ()=>{
-  // Kullanıcı ileri sarmaya çalıştıysa başa sar ve uyar
+video?.addEventListener('seeking', ()=>{
   if(!isSeeking && Math.abs(video.currentTime - lastTime) > 1.5){
-    // Geriye sarmaya izin ver, ileri sarmayı engelle
     if(video.currentTime > lastTime + 1.2){
       isSeeking=true;
       video.currentTime = lastTime;
-      seekGuard.classList.add('show');
-      setTimeout(()=>seekGuard.classList.remove('show'), 2200);
-      statusText.textContent='İleri sarma engellendi!';
+      if(seekGuard){ seekGuard.classList.add('show'); setTimeout(()=>seekGuard.classList.remove('show'), 2200); }
+      if(statusText) statusText.textContent='İleri sarma engellendi!';
       setTimeout(()=>isSeeking=false, 300);
     }
   }
 });
-video.addEventListener('timeupdate', ()=>{ if(!video.seeking) lastTime = video.currentTime; });
+video?.addEventListener('timeupdate', ()=>{ if(!video.seeking) lastTime = video.currentTime; });
 
-// ——— ANTI-CHEAT: visibilitychange ———
 document.addEventListener('visibilitychange', ()=>{
   const chip=document.getElementById('tabChip');
   if(document.hidden){
-    if(!video.paused){ video.pause(); toast('Sekme değiştirildi — video duraklatıldı'); }
+    if(video && !video.paused){ video.pause(); toast('Sekme değiştirildi — video duraklatıldı'); }
     if(chip) chip.textContent='Sekme: Arka planda ⏸';
-    statusText.textContent='Sekme değişti — video durdu';
+    if(statusText) statusText.textContent='Sekme değişti — video durdu';
   } else {
     if(chip) chip.textContent='Sekme: Aktif ✓';
-    statusText.textContent= video.paused ? 'Duraklatıldı — oynatmak için tıkla' : 'Oynatılıyor...';
+    if(statusText) statusText.textContent= video && video.paused ? 'Duraklatıldı — oynatmak için tıkla' : 'Oynatılıyor...';
   }
 });
-
-// ——— Sağ tık ve kısayolları engelle (hafif) ———
-video.addEventListener('contextmenu', e=>e.preventDefault());
+video?.addEventListener('contextmenu', e=>e.preventDefault());
 document.addEventListener('keydown', (e)=>{
   if(document.activeElement && ['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) return;
   if(['ArrowRight','ArrowLeft','ArrowUp','ArrowDown'].includes(e.key)){
-    // Video odaktayken de engelle
-    if(e.target===video || video.contains(e.target)) e.preventDefault();
+    if(e.target===video || (video && video.contains(e.target))) e.preventDefault();
   }
 });
 
-// ——— Video bittiğinde ödül ———
-video.addEventListener('ended', async ()=>{
-  progressFill.style.width='100%';
-  statusText.textContent='Tamamlandı — doğrulanıyor...';
-  playOverlay.style.display='grid';
-  bigPlay.textContent='↺';
+video?.addEventListener('ended', async ()=>{
+  if(progressFill) progressFill.style.width='100%';
+  if(statusText) statusText.textContent='Tamamlandı — doğrulanıyor...';
+  if(playOverlay) playOverlay.style.display='grid';
+  if(bigPlay) bigPlay.textContent='↺';
   if(!IS_LOGGED){
-    watchResult.innerHTML = `<div class="dg-card"><div class="dg-card-body" style="background:rgba(255,214,10,0.08);border:1px solid rgba(255,214,10,0.2);border-radius:14px"><b>Harika!</b> Videoyu sonuna kadar izledin. D-Coin kazanmak için <a href="login.php" style="color:var(--amber);font-weight:700">giriş yap</a>.</div></div>`;
-    watchResult.style.display='block';
+    if(watchResult){ watchResult.innerHTML = `<div class="dg-card"><div class="dg-card-body" style="background:rgba(255,214,10,0.08);border:1px solid rgba(255,214,10,0.2);border-radius:14px"><b>Harika!</b> Videoyu sonuna kadar izledin. D-Coin kazanmak için <a href="login.php" style="color:var(--amber);font-weight:700">giriş yap</a>.</div></div>`; watchResult.style.display='block'; }
     return;
   }
   if(hasRewarded) return;
   hasRewarded=true;
-  // En az süre kontrolü (client tarafı da)
   const elapsed = (Date.now()-watchStartTime)/1000;
   if(elapsed < (currentAd.duration_sec - 3)){
-    watchResult.innerHTML = `<div class="dg-alert dg-alert-error">Süre doğrulaması başarısız. Videoyu tam izlemelisin.</div>`;
-    watchResult.style.display='block';
+    if(watchResult){ watchResult.innerHTML = `<div class="dg-alert dg-alert-error">Süre doğrulaması başarısız. Videoyu tam izlemelisin.</div>`; watchResult.style.display='block'; }
     return;
   }
   try{
@@ -498,27 +468,20 @@ video.addEventListener('ended', async ()=>{
     if(j.ok){
       const bal = j.new_balance;
       if(liveBalance) liveBalance.textContent = Number(bal).toLocaleString('tr-TR');
-      // Günlük sayacı artır
       const chip=document.getElementById('limitChip');
       if(chip) chip.textContent = `${j.today_count} / ${DAILY_LIMIT} izlendi`;
-      watchResult.innerHTML = `<div style="background:linear-gradient(135deg, rgba(0,230,118,0.12), rgba(0,229,255,0.12));border:1px solid rgba(0,230,118,0.3);border-radius:16px;padding:16px;display:flex;gap:14px;align-items:center"><div style="width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg, #00E676, #00B8CC);display:grid;place-items:center;font-size:20px">◈</div><div><b style="color:#7CFFB2">+${j.earned} D-Coin kazandın!</b><br><span class="dg-muted" style="font-size:12px">Bakiyen: <b style="color:var(--amber)">${bal} D-Coin</b> • Bugün ${j.today_count}/${DAILY_LIMIT}</span></div><span style="margin-left:auto;font:800 12px JetBrains Mono,monospace;background:rgba(0,230,118,0.15);color:#7CFFB2;padding:6px 10px;border-radius:999px">✓ EKLENDİ</span></div>`;
+      if(watchResult) { watchResult.innerHTML = `<div style="background:linear-gradient(135deg, rgba(0,230,118,0.12), rgba(0,229,255,0.12));border:1px solid rgba(0,230,118,0.3);border-radius:16px;padding:16px;display:flex;gap:14px;align-items:center"><div style="width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg, #00E676, #00B8CC);display:grid;place-items:center;font-size:20px">◈</div><div><b style="color:#7CFFB2">+${j.earned} D-Coin kazandın!</b><br><span class="dg-muted" style="font-size:12px">Bakiyen: <b style="color:var(--amber)">${bal} D-Coin</b> • Bugün ${j.today_count}/${DAILY_LIMIT}</span></div><span style="margin-left:auto;font:800 12px JetBrains Mono,monospace;background:rgba(0,230,118,0.15);color:#7CFFB2;padding:6px 10px;border-radius:999px">✓ EKLENDİ</span></div>`; watchResult.style.display='block'; }
       toast(`+${j.earned} D-Coin eklendi!`);
-      // Butonları güncelle: eğer limit dolduysa
-      if(j.today_count >= DAILY_LIMIT){
-        document.querySelectorAll('.dg-ad-item').forEach(el=>el.style.opacity='0.5');
-      }
+      if(j.today_count >= DAILY_LIMIT){ document.querySelectorAll('.dg-ad-item').forEach(el=>el.style.opacity='0.5'); }
     } else {
-      watchResult.innerHTML = `<div class="dg-alert dg-alert-error">${j.error||'Ödül verilemedi.'}</div>`;
+      if(watchResult) { watchResult.innerHTML = `<div class="dg-alert dg-alert-error">${j.error||'Ödül verilemedi.'}</div>`; watchResult.style.display='block'; }
       toast(j.error||'Ödül verilemedi');
     }
-    watchResult.style.display='block';
   }catch(e){
-    watchResult.innerHTML = `<div class="dg-alert dg-alert-error">Bağlantı hatası. Tekrar dene.</div>`;
-    watchResult.style.display='block';
+    if(watchResult){ watchResult.innerHTML = `<div class="dg-alert dg-alert-error">Bağlantı hatası. Tekrar dene.</div>`; watchResult.style.display='block'; }
   }
 });
 
-// Store search
 document.getElementById('storeSearch')?.addEventListener('input', (e)=>{
   const q = e.target.value.toLowerCase().trim();
   document.querySelectorAll('.dg-product').forEach(card=>{
@@ -527,7 +490,6 @@ document.getElementById('storeSearch')?.addEventListener('input', (e)=>{
   });
 });
 
-// Purchase
 async function purchase(itemId, method){
   if(!IS_LOGGED){ location.href='login.php'; return; }
   const ok = confirm(method==='dcoin' ? 'D-Coin ile satın alınsın mı? Bakiyenden düşülecek.' : 'Nakit satın alma oluşturulsun mu? (Demo: anında teslim)');
@@ -547,7 +509,6 @@ async function purchase(itemId, method){
       document.getElementById('purchaseModal').classList.add('open');
       if(j.new_balance!==undefined && liveBalance) liveBalance.textContent = Number(j.new_balance).toLocaleString('tr-TR');
       toast('Satın alma başarılı!');
-      // Stok sayısını azalt (görsel)
     } else {
       toast(j.error||'Satın alma başarısız', 4000);
     }

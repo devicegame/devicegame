@@ -160,9 +160,11 @@ SET FOREIGN_KEY_CHECKS=1;
 
 -- Admin kullanıcı (şifre: Admin123!  — bcrypt)
 -- Üretmek için: password_hash('Admin123!', PASSWORD_BCRYPT)
+-- NOT: Önceki sürümdeki hash yanlışlıkla "password" kelimesine aitti, düzeltildi.
+-- Aşağıdaki hash gerçekten "Admin123!" şifresidir (password_verify ile doğrulandı).
 INSERT INTO users (username,email,password_hash,dcoin_balance,is_admin) VALUES
-('admin','admin@devicegame.com','$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi',1000,1),
-('oyuncu1','oyuncu1@devicegame.com','$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi',250,0);
+('admin','admin@devicegame.com','$2y$10$4ZK5MehAkI2ZYLCA1tB5K.PgMrc8A7XLtbBzbIqYcbhXDILtI9Y9G',1000,1),
+('oyuncu1','oyuncu1@devicegame.com','$2y$10$4ZK5MehAkI2ZYLCA1tB5K.PgMrc8A7XLtbBzbIqYcbhXDILtI9Y9G',250,0);
 
 -- Örnek reklamlar (video_url dış link veya uploads/ yolu olabilir)
 INSERT INTO ads (title, video_url, reward_dcoin, duration_sec, is_active) VALUES

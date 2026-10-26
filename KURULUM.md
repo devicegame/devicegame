@@ -26,8 +26,16 @@ Tüm proje dosyalarını hostingindeki `public_html` (veya alan adının kök kl
 
 ### Seçenek A — phpMyAdmin ile (en kolay)
 1. Hosting panelinden **phpMyAdmin** aç.
-2. Üstte **İçe aktar → Dosya seç** de, `schema.sql` dosyasını yükle, **Git** de.
-3. Bitti. Tablolar ve örnek veriler otomatik oluşur.
+2. Soldan **kendi veritabanını seç** (cPanel'de oluşturduğun, örn: `devicegamer_devicegame`).
+3. Üstte **İçe aktar → Dosya seç** de:
+   - **Paylaşımlı hosting (cPanel) kullanıyorsan → `schema_hosting.sql`** yükle.
+   - Kendi sunucun/local (root yetkin varsa) → `schema.sql` de olur.
+4. **Git** de. Solda `users, ads, user_watch_logs, watch_sessions, store_items, store_keys, purchases, settings` tabloları görünmeli.
+
+> ⚠️ Neden iki dosya? `schema.sql` içindeki `CREATE DATABASE` satırı cPanel kullanıcılarında
+> yetki hatası verir ve içe aktarım **yarıda kalabilir** (sonuç: boş 500 hatası).
+> `schema_hosting.sql` aynı şemadır ama `CREATE DATABASE`/`USE` satırları yoktur; seçili DB'ye kurar.
+> Önce cPanel → MySQL Veritabanları'ndan veritabanını + kullanıcıyı oluşturup **kullanıcıyı DB'ye eklemeyi** unutma.
 
 ### Seçenek B — SSH ile
 ```bash
@@ -166,6 +174,36 @@ Değer `settings` tablosunda `daily_watch_limit` olarak tutulur.
 - [ ] `uploads/` yazılabilir ve `.htaccess` ile korunuyor
 - [ ] `storage/` dışarıya kapalı (Apache’de `.htaccess` var, Nginx’te `location ^~ /storage/ { deny all; }`)
 - [ ] HTTPS aktif (oturum çerezi `Secure` otomatik algılar)
+
+---
+
+---
+
+## 13) Sorun Giderme: 500 Hatası ve `DB_CONN_FAILED`
+
+### İlk iş: teşhis sayfası (10 saniye)
+Site boş 500 veriyorsa guesswork yapma:
+1. Tarayıcıda **`siteadın.com/diagnose.php`** aç — her adımı ✅/❌ olarak raporlar.
+2. Gerçek PHP hatasını anlık görmek için: **`siteadın.com/index.php?debug=1`**
+3. İşin bitince **`siteadın.com/diagnose.php?sil=1`** ile teşhis dosyasını sil.
+
+### Bilinen 5 kök neden (yaşanmış senaryolar)
+
+| Belirti / Hata mesajı | Kök neden | Çözüm |
+|---|---|---|
+| `Can't connect to server on '127.0.0.1' (115)` | Host yanlış — paylaşımlı hosting 127.0.0.1 TCP'yi kapatır | `db.php`'de host = **`localhost`** |
+| `Access denied for user 'x'@'localhost' (using password: YES)` | Şifre yanlış **veya** kullanıcı DB'ye eklenmemiş | cPanel → MySQL: şifreyi sıfırla + "Kullanıcıyı Veritabanına Ekle" → Tüm ayrıcalıklar + `db.php` şifresini güncelle |
+| Bağlantı "DB OK" ama site **boş 500** | Tablolar eksik/yanlış DB: sorgu exception fırlatır, eski sürüm bunu gizlerdi | phpMyAdmin'de `db.php`'deki DB'yi seç → İçe aktar → **`schema_hosting.sql`**; yeni `index.php` bu hatada 500 yerine uyarı gösterir |
+| Her şey doğru ama **500 (boş)** | `.htaccess` içinde `php_flag`/`php_value` (FPM/CGI'da 500 yapar) **veya** PHP < 8.0 | Repodaki yeni `uploads/.htaccess`'i yükle; cPanel → MultiPHP → **PHP 8.1/8.2** seç |
+| Admin girişi `Admin123!` ile olmuyor | Eski şemada seed hash'i yanlışlıkla `password` kelimesine aitti (düzeltildi) | Yeni `schema_hosting.sql`'i içe aktar veya `diagnose.php` 5. bölümde durumuna bak |
+
+### `test_db.php` ile site farklı sonuç veriyorsa
+`test_db.php` elle yazdığın şifreyi kullanır, `db.php`'den bağımsızdır. cPanel'de şifreyi sıfırladıysan
+test dosyası eski şifreyle denemeye devam eder. **Doğru kaynak `db.php` + `diagnose.php`'dir**; test dosyalarını sil.
+
+### Hâlâ çözülmediyse
+cPanel → **Errors** bölümündeki (veya ana dizindeki `error_log` dosyasındaki) son `PHP Fatal error` satırı
+gerçek sebeptir. `diagnose.php` 7. bölümde bu satırları otomatik gösterir — o satırı destekle paylaş.
 
 ---
 

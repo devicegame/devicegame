@@ -1,8 +1,13 @@
-Options -Indexes
-<IfModule mod_php.c>
-  php_flag engine off
-</IfModule>
-# Sadece video ve görsellere izin ver — PHP çalıştırmayı engelle
-<FilesMatch "\.php$">
-  Require all denied
+# DeviceGame uploads koruma
+# NOT: "php_flag engine off" ve "Options" satirlari bazi paylasimli hostinglerde
+# (CGI/PHP-FPM + kisitli AllowOverride) 500 hatasina yol acar — bilerek kullanilmadi.
+# Dizin listelemeyi bos index.html engeller; PHP calistirma asagidaki kuralla kapatilir.
+
+<FilesMatch "\.(php|phtml|phar|php[3457])$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Deny from all
+  </IfModule>
 </FilesMatch>
