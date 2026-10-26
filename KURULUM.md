@@ -125,6 +125,7 @@ Varsayılan günlük izleme limiti **5**'tir. Admin → Dashboard → Hızlı Ay
 | `/admin/ads.php` | Reklam ekle/düzenle/sil, aktif/pasif yap, URL veya `.mp4/.webm` yükle |
 | `/admin/users.php` | Kullanıcı ara, D-Coin ekle/çıkar, ban/unban, admin yap/al |
 | `/admin/store.php` | Eski katalog ürünleri + D-Coin ürünleri, TL/D-Coin fiyatı, **adet stok veya tek tek key** yönetimi |
+| `/admin/blog.php` | Blog yazısı ekleme/düzenleme/silme, taslaklar ve yayın durumu yönetimi (`storage/blog.json`) |
 | `/admin/logs.php` | İzleme ve satın alma logları, arama, CSV export |
 
 ---

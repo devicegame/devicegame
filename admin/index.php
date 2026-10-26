@@ -74,6 +74,7 @@ admin_head('Dashboard');
   <div style="display:flex;gap:8px">
     <a href="ads.php" class="dg-btn dg-btn-primary dg-btn-sm">+ Reklam Ekle</a>
     <a href="store.php" class="dg-btn dg-btn-ghost dg-btn-sm">+ Ürün Ekle</a>
+    <a href="blog.php" class="dg-btn dg-btn-ghost dg-btn-sm">+ Yazı Ekle</a>
   </div>
 </div>
 

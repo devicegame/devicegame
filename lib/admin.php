@@ -496,4 +496,17 @@ if (!defined('DG_ADMIN')) {
         }
         return admin_save_posts($filtered);
     }
+
+    /** Blog yazısının yayın durumunu tersine çevirir. */
+    function admin_toggle_post(string $slug): bool
+    {
+        $posts = blog_posts(false);
+        foreach ($posts as $index => $post) {
+            if ($post['slug'] === $slug) {
+                $posts[$index]['published'] = !$post['published'];
+                return admin_save_posts($posts);
+            }
+        }
+        return false;
+    }
 }

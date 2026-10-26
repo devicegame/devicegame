@@ -96,7 +96,7 @@ $required = [
     'lib/shop.php', 'partials/slider.php', 'storage/products.json',
     'assets/css/devicegame.css', 'assets/css/dcoin.css', 'assets/js/dcoin.js',
     'admin/index.php', 'admin/ads.php', 'admin/users.php',
-    'admin/store.php', 'admin/logs.php', 'api/watch_start.php', 'api/watch_complete.php', 'api/purchase.php',
+    'admin/store.php', 'admin/blog.php', 'admin/logs.php', 'api/watch_start.php', 'api/watch_complete.php', 'api/purchase.php',
     'storage/.htaccess', 'storage/dg/.htaccess', 'uploads/.htaccess', 'uploads/index.html',
 ];
 foreach ($required as $f) {
