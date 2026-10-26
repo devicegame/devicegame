@@ -1,0 +1,13 @@
+{
+  "name": "devicegame-preview",
+  "private": true,
+  "type": "module",
+  "description": "Yerel PHP önizlemesi (php-wasm). Canlı sunucu gerekmez.",
+  "scripts": {
+    "start": "node preview-server.mjs"
+  },
+  "dependencies": {
+    "@php-wasm/node": "^3.1.0",
+    "@php-wasm/universal": "^3.1.0"
+  }
+}
