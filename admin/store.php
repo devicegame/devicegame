@@ -19,58 +19,113 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
     if ($price_tl<0) $price_tl=0;
     if ($price_dcoin<0) $price_dcoin=0;
 
-    if ($id>0) {
-      $pdo->prepare("UPDATE store_items SET name=?, description=?, image_url=?, price_tl=?, price_dcoin=?, is_active=? WHERE id=?")
-          ->execute([$name,$desc,$image_url,$price_tl,$price_dcoin,$is_active,$id]);
-      // Yeni keyler varsa ekle
-      if ($keys_raw!=='') {
-        $keys = preg_split('/\r\n|\n|\r|,/', $keys_raw);
-        $ins=$pdo->prepare("INSERT INTO store_keys (store_item_id, key_code) VALUES (?,?)");
-        foreach($keys as $k){ $k=trim($k); if($k!=='') $ins->execute([$id,$k]); }
-        // stok güncelle
-        $pdo->prepare("UPDATE store_items SET stock=(SELECT COUNT(*) FROM store_keys WHERE store_item_id=? AND is_used=0) WHERE id=?")->execute([$id,$id]);
+    $keys_list = [];
+    if ($keys_raw!=='') {
+      foreach (preg_split('/\r\n|\n|\r|,/', $keys_raw) ?: [] as $k) {
+        $k = trim((string)$k);
+        if ($k !== '') $keys_list[] = $k;
       }
-      flash_set('Ürün güncellendi.');
-    } else {
-      $pdo->prepare("INSERT INTO store_items (name, description, image_url, price_tl, price_dcoin, is_active) VALUES (?,?,?,?,?,?)")
-          ->execute([$name,$desc,$image_url,$price_tl,$price_dcoin,$is_active]);
-      $newId=(int)$pdo->lastInsertId();
-      if ($keys_raw!=='') {
-        $keys = preg_split('/\r\n|\n|\r|,/', $keys_raw);
-        $ins=$pdo->prepare("INSERT INTO store_keys (store_item_id, key_code) VALUES (?,?)");
-        foreach($keys as $k){ $k=trim($k); if($k!=='') $ins->execute([$newId,$k]); }
-        $pdo->prepare("UPDATE store_items SET stock=(SELECT COUNT(*) FROM store_keys WHERE store_item_id=? AND is_used=0) WHERE id=?")->execute([$newId,$newId]);
-      }
-      flash_set('Ürün eklendi.');
+    }
+
+    try {
+      $saved = dg_mutate(function (array &$data) use ($id, $name, $desc, $image_url, $price_tl, $price_dcoin, $is_active, $keys_list): bool {
+        $now = dg_now();
+        $itemId = $id;
+
+        if ($id > 0) {
+          $i = dg_index_of_id($data['store_items'], $id);
+          if ($i === null) return false;
+          $data['store_items'][$i]['name'] = $name;
+          $data['store_items'][$i]['description'] = $desc;
+          $data['store_items'][$i]['image_url'] = $image_url;
+          $data['store_items'][$i]['price_tl'] = $price_tl;
+          $data['store_items'][$i]['price_dcoin'] = $price_dcoin;
+          $data['store_items'][$i]['is_active'] = $is_active;
+          $data['store_items'][$i]['updated_at'] = $now;
+        } else {
+          $itemId = dg_next_id($data, 'store_items');
+          $data['store_items'][] = [
+            'id' => $itemId,
+            'name' => $name,
+            'description' => $desc,
+            'image_url' => $image_url,
+            'price_tl' => $price_tl,
+            'price_dcoin' => $price_dcoin,
+            'stock' => 0,
+            'is_active' => $is_active,
+            'created_at' => $now,
+            'updated_at' => $now,
+          ];
+        }
+
+        foreach ($keys_list as $code) {
+          $data['store_keys'][] = [
+            'id' => dg_next_id($data, 'store_keys'),
+            'store_item_id' => $itemId,
+            'key_code' => $code,
+            'is_used' => 0,
+            'used_by' => null,
+            'used_at' => null,
+            'created_at' => $now,
+          ];
+        }
+        dg_refresh_store_stock($data);
+        return true;
+      });
+      if ($saved) flash_set($id > 0 ? 'Ürün güncellendi.' : 'Ürün eklendi.');
+      else flash_error_set('Ürün bulunamadı.');
+    } catch (Throwable $e) {
+      error_log('[admin store save] ' . $e->getMessage());
+      flash_error_set('Ürün kaydedilemedi. Depolama izinlerini kontrol edin.');
     }
     header('Location: store.php'); exit;
   }
   if (isset($_POST['delete_item'])) {
     $id=(int)($_POST['id']??0);
-    $pdo->prepare("DELETE FROM store_items WHERE id=?")->execute([$id]);
+    dg_mutate(function (array &$data) use ($id): void {
+      $data['store_items'] = array_values(array_filter($data['store_items'], fn(array $i): bool => (int)$i['id'] !== $id));
+      $data['store_keys'] = array_values(array_filter($data['store_keys'], fn(array $k): bool => (int)$k['store_item_id'] !== $id));
+      // Satış geçmişi snapshot ile korunur.
+    });
     flash_set('Ürün silindi.');
     header('Location: store.php'); exit;
   }
   if (isset($_POST['toggle_item'])) {
     $id=(int)($_POST['id']??0);
-    $pdo->prepare("UPDATE store_items SET is_active=1-is_active WHERE id=?")->execute([$id]);
+    dg_mutate(function (array &$data) use ($id): void {
+      $i = dg_index_of_id($data['store_items'], $id);
+      if ($i !== null) {
+        $data['store_items'][$i]['is_active'] = 1 - (int)($data['store_items'][$i]['is_active'] ?? 0);
+        $data['store_items'][$i]['updated_at'] = dg_now();
+      }
+    });
     header('Location: store.php'); exit;
   }
   if (isset($_POST['delete_key'])) {
     $kid=(int)($_POST['key_id']??0);
     $iid=(int)($_POST['item_id']??0);
-    $pdo->prepare("DELETE FROM store_keys WHERE id=? AND is_used=0")->execute([$kid]);
-    $pdo->prepare("UPDATE store_items SET stock=(SELECT COUNT(*) FROM store_keys WHERE store_item_id=? AND is_used=0) WHERE id=?")->execute([$iid,$iid]);
+    dg_mutate(function (array &$data) use ($kid): void {
+      $data['store_keys'] = array_values(array_filter(
+        $data['store_keys'],
+        fn(array $k): bool => !((int)$k['id'] === $kid && (int)($k['is_used'] ?? 0) === 0)
+      ));
+      dg_refresh_store_stock($data);
+    });
     header('Location: store.php?edit='.$iid); exit;
   }
 }
 
-$items = $pdo->query("SELECT si.*, (SELECT COUNT(*) FROM store_keys WHERE store_item_id=si.id AND is_used=0) as avail, (SELECT COUNT(*) FROM store_keys WHERE store_item_id=si.id AND is_used=1) as used FROM store_items ORDER BY si.created_at DESC")->fetchAll();
+$data = dg_read_data();
+$items = dg_enrich_store_items($data, dg_sort_newest($data['store_items'] ?? []));
 $edit=null;
+$keys=[];
 if (isset($_GET['edit'])) {
   $eid=(int)$_GET['edit'];
-  $st=$pdo->prepare("SELECT * FROM store_items WHERE id=?"); $st->execute([$eid]); $edit=$st->fetch();
-  $keys=[]; if($edit){ $keys=$pdo->prepare("SELECT * FROM store_keys WHERE store_item_id=? ORDER BY id DESC"); $keys->execute([$eid]); $keys=$keys->fetchAll(); }
+  $edit = dg_find_by_id($data['store_items'] ?? [], $eid);
+  if ($edit) {
+    $keys = array_values(array_filter($data['store_keys'] ?? [], fn(array $k): bool => (int)$k['store_item_id'] === $eid));
+    usort($keys, fn(array $a, array $b): int => (int)($b['id'] ?? 0) <=> (int)($a['id'] ?? 0));
+  }
 }
 
 admin_head('Mağaza Yönetimi');

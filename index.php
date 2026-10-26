@@ -3,22 +3,52 @@
 declare(strict_types=1);
 require_once __DIR__ . '/db.php';
 
-// Hata yakala — DB tabloları yoksa bile sayfa 500 yerine uyarı göstersin
+// Hata yakala — veri dosyası sorunu olsa bile sayfa boş 500 yerine uyarı göstersin
 $user = null; $is_logged = false; $daily_limit = DG_DAILY_LIMIT_DEFAULT; $today_count = 0; $remaining = 0;
 $ads = []; $active_ad = null; $store_items = []; $my_purchases = [];
-$db_error = null;
+$storage_error = null;
+$stat_users = 0; $stat_dcoin = 0; $stat_watches = 0; $stat_purchases = 0;
 
-try { $user = current_user($pdo); $is_logged = $user !== null; } catch (Throwable $e) { $db_error = $e->getMessage(); error_log('[index user] '.$e->getMessage()); }
-try { $daily_limit = daily_watch_limit($pdo); } catch (Throwable $e) { $db_error = $e->getMessage(); }
-try { if ($is_logged) $today_count = today_watch_count($pdo, (int)$user['id']); $remaining = max(0, $daily_limit - $today_count); } catch (Throwable $e) {}
-try { $ads = $pdo->query("SELECT * FROM ads WHERE is_active=1 ORDER BY created_at DESC")->fetchAll(); if (!$ads) $ads=[]; $active_ad=$ads[0] ?? null; } catch (Throwable $e) { $db_error = $e->getMessage(); $ads=[]; }
-try { $store_items = $pdo->query("SELECT si.*, (SELECT COUNT(*) FROM store_keys WHERE store_item_id=si.id AND is_used=0) as keys_left FROM store_items WHERE is_active=1 ORDER BY created_at DESC")->fetchAll(); } catch (Throwable $e) { $db_error = $e->getMessage(); $store_items=[]; }
 try {
+  $data = dg_read_data();
+  $user = current_user();
+  $is_logged = $user !== null;
+  $daily_limit = max(1, (int)($data['settings']['daily_watch_limit'] ?? DG_DAILY_LIMIT_DEFAULT));
+  if ($is_logged) $today_count = today_watch_count((int)$user['id'], $data);
+  $remaining = max(0, $daily_limit - $today_count);
+
+  $ads = array_values(array_filter(
+    dg_sort_newest($data['ads'] ?? []),
+    fn(array $a): bool => (int)($a['is_active'] ?? 0) === 1
+  ));
+  $active_ad = $ads[0] ?? null;
+
+  $active_items = array_values(array_filter(
+    dg_sort_newest($data['store_items'] ?? []),
+    fn(array $i): bool => (int)($i['is_active'] ?? 0) === 1
+  ));
+  $store_items = dg_enrich_store_items($data, $active_items);
+
+  $stat_users = count($data['users'] ?? []);
+  foreach ($data['users'] ?? [] as $u) $stat_dcoin += (int)($u['dcoin_balance'] ?? 0);
+  $stat_watches = count($data['watch_logs'] ?? []);
+  $stat_purchases = count($data['purchases'] ?? []);
+
   if ($is_logged) {
-    $st = $pdo->prepare("SELECT p.*, si.name as item_name FROM purchases p JOIN store_items si ON si.id=p.store_item_id WHERE p.user_id=? ORDER BY p.created_at DESC LIMIT 10");
-    $st->execute([(int)$user['id']]); $my_purchases = $st->fetchAll();
+    $items_by_id = dg_index_by_id($data['store_items'] ?? []);
+    $mine = array_values(array_filter(
+      $data['purchases'] ?? [],
+      fn(array $p): bool => (int)($p['user_id'] ?? 0) === (int)$user['id']
+    ));
+    foreach (array_slice(dg_sort_newest($mine), 0, 10) as $p) {
+      $p['item_name'] = $items_by_id[(int)$p['store_item_id']]['name'] ?? ($p['item_name'] ?? 'Silinmiş ürün');
+      $my_purchases[] = $p;
+    }
   }
-} catch (Throwable $e) { $db_error = $e->getMessage(); }
+} catch (Throwable $e) {
+  $storage_error = $e->getMessage();
+  error_log('[index storage] ' . $e->getMessage());
+}
 
 $flash = flash_get();
 $flash_err = flash_error_get();
@@ -66,8 +96,8 @@ $flash_err = flash_error_get();
 <?php if ($flash_err): ?>
 <div class="dg-flash"><div class="dg-flash-inner error"><?=e($flash_err)?></div></div>
 <?php endif; ?>
-<?php if ($db_error): ?>
-<div class="dg-flash"><div class="dg-flash-inner error">⚠️ Veritabanı uyarısı: <?=e($db_error)?> — <a href="diagnose.php" style="color:inherit;text-decoration:underline">diagnose.php ile kontrol et</a></div></div>
+<?php if ($storage_error): ?>
+<div class="dg-flash"><div class="dg-flash-inner error">⚠️ Depolama uyarısı: <?=e($storage_error)?> — <a href="diagnose.php" style="color:inherit;text-decoration:underline">diagnose.php ile kontrol et</a></div></div>
 <?php endif; ?>
 
 <main class="dg-wrap">
@@ -83,10 +113,10 @@ $flash_err = flash_error_get();
         <a href="#store" class="dg-btn dg-btn-ghost">Mağazayı Keşfet →</a>
       </div>
       <div class="dg-stats" style="margin-top:22px">
-        <div class="dg-stat"><label>Toplam Üye</label><strong><?php try{$c=$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn(); echo (int)$c;}catch(Throwable $e){echo '—';} ?></strong><small>Kayıtlı oyuncu</small></div>
-        <div class="dg-stat"><label>Dolaşımdaki D-Coin</label><strong style="color:var(--amber)"><?php try{echo number_format((int)$pdo->query("SELECT COALESCE(SUM(dcoin_balance),0) FROM users")->fetchColumn());}catch(Throwable $e){echo '—';} ?></strong><small>Tüm cüzdanlarda</small></div>
-        <div class="dg-stat"><label>İzlenen Reklam</label><strong style="color:var(--cyan)"><?php try{echo number_format((int)$pdo->query("SELECT COUNT(*) FROM user_watch_logs")->fetchColumn());}catch(Throwable $e){echo '—';} ?></strong><small>Toplam oynatma</small></div>
-        <div class="dg-stat"><label>Mağaza Satış</label><strong style="color:var(--purple2)"><?php try{echo number_format((int)$pdo->query("SELECT COUNT(*) FROM purchases")->fetchColumn());}catch(Throwable $e){echo '—';} ?></strong><small>Teslim edildi</small></div>
+        <div class="dg-stat"><label>Toplam Üye</label><strong><?=number_format($stat_users)?></strong><small>Kayıtlı oyuncu</small></div>
+        <div class="dg-stat"><label>Dolaşımdaki D-Coin</label><strong style="color:var(--amber)"><?=number_format($stat_dcoin)?></strong><small>Tüm cüzdanlarda</small></div>
+        <div class="dg-stat"><label>İzlenen Reklam</label><strong style="color:var(--cyan)"><?=number_format($stat_watches)?></strong><small>Toplam oynatma</small></div>
+        <div class="dg-stat"><label>Mağaza Satış</label><strong style="color:var(--purple2)"><?=number_format($stat_purchases)?></strong><small>Teslim edildi</small></div>
       </div>
     </div>
     <div>
@@ -146,7 +176,7 @@ $flash_err = flash_error_get();
     </div>
 
     <?php if (empty($ads)): ?>
-      <div class="dg-card"><div class="dg-empty">Henüz aktif reklam yok. Admin panelden ekleyin. <?php if($db_error) echo '<br><small>DB Hatası: '.e($db_error).'</small>'; ?></div></div>
+      <div class="dg-card"><div class="dg-empty">Henüz aktif reklam yok. Admin panelden ekleyin. <?php if($storage_error) echo '<br><small>Depolama hatası: '.e($storage_error).'</small>'; ?></div></div>
     <?php else: ?>
     <div class="dg-video-grid">
       <!-- Player -->
@@ -272,11 +302,11 @@ $flash_err = flash_error_get();
       <div class="dg-card-body" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;justify-content:space-between">
         <div>
           <h3 style="font:800 14px Orbitron,monospace">DeviceGame Nedir?</h3>
-          <p class="dg-muted" style="font-size:13px;margin-top:4px;max-width:60ch">Oyuncular için kurduğumuz evren: video izle, görev yap, D-Coin topla, mağazada harca. Tüm altyapı Vanilla PHP + PDO ile, hantallık yok.</p>
+          <p class="dg-muted" style="font-size:13px;margin-top:4px;max-width:60ch">Oyuncular için kurduğumuz evren: video izle, görev yap, D-Coin topla, mağazada harca. Tüm altyapı Vanilla PHP + dosya depolama ile; veritabanı kurulumu yok, hantallık yok.</p>
         </div>
         <div style="display:flex;gap:8px">
           <span class="dg-chip on">PHP 8.1+</span>
-          <span class="dg-chip">MySQL PDO</span>
+          <span class="dg-chip">JSON Storage</span>
           <span class="dg-chip">Anti-Cheat</span>
           <span class="dg-chip">Cyberpunk</span>
         </div>

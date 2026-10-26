@@ -11,7 +11,7 @@ build adımı gerekmez.
 | PHP **8.1+** | Kodun tamamı 8.0 ile de uyumlu; güvenlik desteği için 8.1+ önerilir |
 | `mbstring` | Türkçe karakter ve arama için (çoğu hostingde açıktır) |
 | `session` | Sepet oturumda tutulur |
-| Yazma izni | Yalnızca `storage/` klasörü için |
+| Yazma izni | `storage/` (siparişler + D-Coin verisi) ve `uploads/` (reklam videoları) için |
 | HTTPS | Önerilir; WhatsApp yönlendirmesi ve çerezler için daha güvenli |
 
 PHP sürümünü cPanel → **MultiPHP Manager**, Plesk → **PHP Settings**
@@ -33,6 +33,8 @@ Dosya yöneticisi yerine FTP/SFTP kullanıyorsan `data/`, `lib/`, `partials/`,
 
 ```
 storage/        775  (bazı hostinglerde 755 yeterli)
+storage/dg/     775  (D-Coin JSON verisi)
+uploads/        775  (admin panelinden yüklenen reklam videoları)
 diğer dosyalar  644
 klasörler       755
 ```
@@ -102,10 +104,11 @@ girişte yeni şifreyi ister.
 
 ## 8. Yedekleme
 
-Önemli iki dosya:
+Önemli dosyalar:
 
-- `storage/orders.jsonl` — siparişler (satır başına bir JSON)
-- `storage/order-status.json` — panelde verilen durumlar
+- `storage/dg/database.json` — D-Coin kullanıcıları, bakiyeler, reklamlar, ürün/keyler ve loglar
+- `storage/orders.jsonl` — eski mağaza siparişleri (satır başına bir JSON)
+- `storage/order-status.json` — eski mağaza panelinde verilen durumlar
 
 Bunları düzenli olarak indir. Hosting yedeği alıyorsa `storage/` klasörünün
 dahil olduğunu doğrula.
