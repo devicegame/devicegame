@@ -17,8 +17,11 @@ if ($product['badge'] === 'Stüdyo imzası') {
 }
 $in_cart = (int)(cart_raw()[$product['slug']] ?? 0);
 $index_label = isset($index) ? str_pad((string)($index + 1), 2, '0', STR_PAD_LEFT) : '';
+$product_card_dg_item = (isset($dg_context) && is_array($dg_context) && function_exists('dg_storefront_item'))
+    ? dg_storefront_item($dg_context, $product)
+    : null;
 ?>
-<article class="p-card">
+<article class="p-card<?php echo isset($dg_context) && is_array($dg_context) ? ' dcoin-card' : ''; ?>">
     <a class="p-card-media" href="product.php?slug=<?php echo urlencode($product['slug']); ?>" aria-label="<?php echo e($product['name']); ?> detayları">
         <div class="poster" data-pattern="<?php echo e($product['pattern']); ?>"
              style="--c1:<?php echo e($product['c1']); ?>;--c2:<?php echo e($product['c2']); ?>;--accent:<?php echo e($product['accent']); ?>">
@@ -64,5 +67,8 @@ $index_label = isset($index) ? str_pad((string)($index + 1), 2, '0', STR_PAD_LEF
                 </button>
             </form>
         </div>
+        <?php if (isset($dg_context) && is_array($dg_context) && function_exists('dg_storefront_render_buy')): ?>
+            <?php dg_storefront_render_buy($product_card_dg_item, $dg_context, 'card'); ?>
+        <?php endif; ?>
     </div>
 </article>

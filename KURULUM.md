@@ -110,7 +110,7 @@ Tarayıcıda ana sayfayı aç:
 2. Ana sayfada bir reklam seçip oynat.
 3. Videoyu sonuna kadar izle. İleri sarma kapalıdır; sekme değiştirirsen video durur.
 4. Video bitince D-Coin otomatik eklenir ve sağ üst bakiye güncellenir.
-5. Mağazadan **D-Coin ile Al** de. Key stoklu ürünlerde key teslim edilir; eski katalogdan adet stokla gelen ürünlerde teslimatta kullanılacak bir sipariş kodu oluşturulur.
+5. Ana sayfa, `shop.php` veya ürün detayından **D-Coin ile Al** de. Key stoklu ürünlerde key teslim edilir; her satın almada ayrıca bir sipariş kodu oluşur. Sonuç penceresindeki **Sipariş kodunu WhatsApp’tan gönder** düğmesi, ürün ve sipariş kodunu hazır mesaj olarak açar (ürün anahtarı mesaja eklenmez).
 6. `/admin/index.php` içinde istatistiklerin değiştiğini kontrol et.
 
 Varsayılan günlük izleme limiti **5**'tir. Admin → Dashboard → Hızlı Ayar bölümünden değiştirilir.

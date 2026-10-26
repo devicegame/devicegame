@@ -84,7 +84,7 @@
             } else {
                 button.disabled = false;
                 button.title = '';
-                button.textContent = 'D-Coin ile al';
+                button.textContent = button.getAttribute('data-buy-label') || 'D-Coin ile al';
             }
         });
     }
@@ -112,6 +112,10 @@
     var modalDesc = document.getElementById('modalDesc');
     var modalCodeLabel = document.getElementById('modalCodeLabel');
     var modalKeyText = document.getElementById('modalKeyText');
+    var modalOrderCodeRow = document.getElementById('modalOrderCodeRow');
+    var modalOrderCode = document.getElementById('modalOrderCode');
+    var modalWhatsappNote = document.getElementById('modalWhatsappNote');
+    var whatsappOrderShare = document.getElementById('whatsappOrderShare');
 
     function closeModal() {
         if (modal) modal.classList.remove('open');
@@ -124,57 +128,102 @@
         if (event.key === 'Escape') closeModal();
     });
 
+    function copyText(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text || '').then(function () {
+                showToast('Kod kopyalandı.');
+            }).catch(function () {
+                showToast('Kodu elle kopyalayabilirsiniz.');
+            });
+        } else {
+            showToast('Kodu elle kopyalayabilirsiniz.');
+        }
+    }
+
     var copyButton = document.getElementById('copyDeliveryCode');
     if (copyButton && modalKeyText) {
         copyButton.addEventListener('click', function () {
-            var text = modalKeyText.textContent || '';
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(text).then(function () {
-                    showToast('Kod kopyalandı.');
-                }).catch(function () {
-                    showToast('Kodu elle kopyalayabilirsiniz.');
-                });
-            } else {
-                showToast('Kodu elle kopyalayabilirsiniz.');
-            }
+            copyText(modalKeyText.textContent || '');
+        });
+    }
+    var copyOrderButton = document.getElementById('copyOrderCode');
+    if (copyOrderButton && modalOrderCode) {
+        copyOrderButton.addEventListener('click', function () {
+            copyText(modalOrderCode.textContent || '');
         });
     }
 
     function updatePurchasedCard(itemId) {
-        var card = document.querySelector('[data-store-card][data-item-id="' + itemId + '"]');
-        if (!card) return;
-        var stock = Math.max(0, Number(card.getAttribute('data-stock') || 0) - 1);
-        card.setAttribute('data-stock', String(stock));
-        var stockLabel = card.querySelector('[data-stock-label]');
-        if (stockLabel) {
-            stockLabel.textContent = stock > 0 ? stock + ' stok' : 'Tükendi';
-            stockLabel.classList.toggle('is-low', stock > 0 && stock <= 2);
-            stockLabel.classList.toggle('is-empty', stock <= 0);
+        document.querySelectorAll('[data-store-card][data-item-id="' + itemId + '"]').forEach(function (card) {
+            var stock = Math.max(0, Number(card.getAttribute('data-stock') || 0) - 1);
+            card.setAttribute('data-stock', String(stock));
+            var stockLabel = card.querySelector('[data-stock-label]');
+            if (stockLabel) {
+                stockLabel.textContent = stock > 0 ? stock + ' stok' : 'Tükendi';
+                stockLabel.classList.toggle('is-low', stock > 0 && stock <= 2);
+                stockLabel.classList.toggle('is-empty', stock <= 0);
+            }
+            if (stock <= 0) {
+                card.querySelectorAll('[data-purchase]').forEach(function (button) {
+                    button.disabled = true;
+                    button.textContent = 'Stokta yok';
+                });
+            }
+        });
+    }
+
+    function whatsappOrderUrl(result, orderCode) {
+        var phone = String(config.whatsapp || '').replace(/\D/g, '');
+        if (!phone || !orderCode) return '';
+
+        var lines = [
+            'Merhaba, Device Game üzerinden satın aldığım ürün için sipariş kodumu paylaşıyorum.',
+            '',
+            'Ürün: ' + (result.item_name || 'Ürün'),
+            'Sipariş kodu: ' + orderCode
+        ];
+        if (result.payment_method === 'dcoin' && result.price_paid_dcoin != null) {
+            lines.push('Ödeme: ' + formatNumber(result.price_paid_dcoin) + ' D-Coin');
+        } else if (result.payment_method === 'cash' && result.price_paid_tl != null) {
+            lines.push('Ödeme: ₺' + formatNumber(result.price_paid_tl));
         }
-        if (stock <= 0) {
-            card.querySelectorAll('[data-purchase]').forEach(function (button) {
-                button.disabled = true;
-                button.textContent = 'Stokta yok';
-            });
-        }
+        lines.push('', 'Teslimat için yardımcı olabilir misiniz?');
+
+        return 'https://wa.me/' + phone + '?text=' + encodeURIComponent(lines.join('\n'));
     }
 
     function openDeliveryModal(result) {
         if (!modal || !modalTitle || !modalDesc || !modalKeyText) return;
         var isKey = result.delivery_type !== 'order_code';
+        var deliveredCode = result.delivered_key || '';
+        var orderCode = result.order_code || (!isKey ? deliveredCode : '');
+        var whatsappUrl = whatsappOrderUrl(result, orderCode);
+
         modalTitle.textContent = isKey ? 'Anahtarın hazır.' : 'Siparişin oluşturuldu.';
         modalDesc.textContent = isKey
-            ? result.item_name + ' için ürün anahtarın teslim edildi. Kopyalayıp hemen kullanabilirsin.'
-            : result.item_name + ' için sipariş kodun oluşturuldu. Teslimat sırasında bu kodu kullanacağız.';
+            ? result.item_name + ' için ürün anahtarın teslim edildi. Sipariş kodunu WhatsApp’tan göndererek teslimat kaydını hızlandırabilirsin.'
+            : result.item_name + ' için sipariş kodun oluşturuldu. Kodu WhatsApp’tan bize gönder, teslimatını hazırlayalım.';
         if (modalCodeLabel) modalCodeLabel.textContent = isKey ? 'Ürün anahtarı' : 'Sipariş kodu';
-        modalKeyText.textContent = result.delivered_key || '';
+        modalKeyText.textContent = deliveredCode;
+
+        if (modalOrderCodeRow && modalOrderCode) {
+            var showOrderCode = !!orderCode && orderCode !== deliveredCode;
+            modalOrderCode.textContent = showOrderCode ? orderCode : '';
+            modalOrderCodeRow.hidden = !showOrderCode;
+        }
+        if (modalWhatsappNote) modalWhatsappNote.hidden = !whatsappUrl;
+        if (whatsappOrderShare) {
+            whatsappOrderShare.href = whatsappUrl || '#';
+            whatsappOrderShare.hidden = !whatsappUrl;
+        }
+
         modal.classList.add('open');
     }
 
     document.querySelectorAll('[data-purchase]').forEach(function (button) {
         button.addEventListener('click', function () {
             if (!config.isLogged) {
-                window.location.href = 'login.php?next=index.php';
+                window.location.href = 'login.php?next=' + encodeURIComponent(config.loginNext || 'index.php');
                 return;
             }
             var itemId = Number(button.getAttribute('data-purchase') || 0);
