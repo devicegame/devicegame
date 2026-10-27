@@ -536,12 +536,193 @@ if (!defined('DG_SHOP')) {
         return shop_storage_dir() . '/blog.json';
     }
 
+    function blog_categories_file(): string
+    {
+        return shop_storage_dir() . '/blog-categories.json';
+    }
+
+    /** Kategori adından/slug değerinden URL dostu, Türkçe uyumlu slug üretir. */
+    function blog_category_slugify(string $text): string
+    {
+        $slug = shop_fold(trim($text));
+        $slug = preg_replace('/[^a-z0-9]+/', '-', $slug) ?? '';
+        return trim($slug, '-');
+    }
+
+    function blog_category_name_from_slug(string $slug): string
+    {
+        $slug = blog_category_slugify($slug);
+        if ($slug === '') {
+            return 'Genel';
+        }
+        $name = str_replace('-', ' ', $slug);
+        return function_exists('mb_convert_case')
+            ? mb_convert_case($name, MB_CASE_TITLE, 'UTF-8')
+            : ucwords($name);
+    }
+
+    function blog_normalize_category(array $category, int $fallbackOrder = 0): array
+    {
+        $slug = blog_category_slugify((string)($category['slug'] ?? $category['name'] ?? ''));
+        if ($slug === '') {
+            $slug = 'genel';
+        }
+        $name = trim((string)($category['name'] ?? ''));
+        if ($name === '') {
+            $name = blog_category_name_from_slug($slug);
+        }
+
+        return [
+            'slug'        => $slug,
+            'name'        => $name,
+            'description' => trim((string)($category['description'] ?? '')),
+            'order'       => (int)($category['order'] ?? $fallbackOrder),
+        ];
+    }
+
+    function blog_default_categories(): array
+    {
+        return [
+            ['slug' => 'genel', 'name' => 'Genel', 'description' => 'Kategorisi belirtilmemiş blog yazıları.', 'order' => 1],
+            ['slug' => 'duyuru', 'name' => 'Duyuru', 'description' => 'Device Game duyuruları ve güncellemeler.', 'order' => 2],
+            ['slug' => 'gelistirici-gunlugu', 'name' => 'Geliştirici Günlüğü', 'description' => 'Oyun geliştirme sürecinden notlar ve perde arkası.', 'order' => 3],
+            ['slug' => 'rehber', 'name' => 'Rehber', 'description' => 'Ürün, platform ve oyun rehberleri.', 'order' => 4],
+            ['slug' => 'studyo', 'name' => 'Stüdyo', 'description' => 'Stüdyodan haberler ve ekip notları.', 'order' => 5],
+        ];
+    }
+
+    /** Kayıtlı blog kategorileri; dosya yoksa varsayılanlarla oluşturulur. */
+    function blog_categories(): array
+    {
+        $categories = shop_read_json(blog_categories_file());
+        if ($categories === null) {
+            $categories = blog_default_categories();
+            shop_write_json(blog_categories_file(), array_map('blog_normalize_category', $categories));
+        }
+
+        $normalized = [];
+        $seen = [];
+        foreach (array_values(is_array($categories) ? $categories : []) as $i => $category) {
+            if (!is_array($category)) {
+                continue;
+            }
+            $category = blog_normalize_category($category, $i + 1);
+            if (isset($seen[$category['slug']])) {
+                continue;
+            }
+            $seen[$category['slug']] = true;
+            $normalized[] = $category;
+        }
+
+        if (!isset($seen['genel'])) {
+            foreach (blog_default_categories() as $default) {
+                if ($default['slug'] === 'genel') {
+                    $normalized[] = blog_normalize_category($default, 99);
+                    break;
+                }
+            }
+        }
+
+        usort($normalized, static fn($a, $b) => [$a['order'], shop_fold($a['name'])] <=> [$b['order'], shop_fold($b['name'])]);
+        return $normalized;
+    }
+
+    /** Slug => kategori eşlemesi. */
+    function blog_category_map(): array
+    {
+        $map = [];
+        foreach (blog_categories() as $category) {
+            $map[$category['slug']] = $category;
+        }
+        return $map;
+    }
+
+    /**
+     * Bir yazının kategorisini çözer. Kayıtlı olmayan eski etiketler de
+     * geriye uyumlu bir kategori olarak görünür.
+     */
+    function blog_post_category(array $post, ?array $categoryMap = null): array
+    {
+        $categoryMap = $categoryMap ?? blog_category_map();
+        $slug = blog_category_slugify((string)($post['category'] ?? $post['tag'] ?? ''));
+        if ($slug === '') {
+            $slug = 'genel';
+        }
+        if (isset($categoryMap[$slug])) {
+            return $categoryMap[$slug] + ['is_registered' => true];
+        }
+
+        $tag = trim((string)($post['tag'] ?? ''));
+        $name = ($tag !== '' && blog_category_slugify($tag) === $slug)
+            ? $tag
+            : blog_category_name_from_slug($slug);
+
+        return blog_normalize_category([
+            'slug' => $slug,
+            'name' => $name,
+            'description' => '',
+            'order' => 900,
+        ], 900) + ['is_registered' => false];
+    }
+
+    /** Kategorileri toplam/yayında/taslak yazı sayılarıyla birlikte döner. */
+    function blog_category_summaries(bool $onlyPublished = true): array
+    {
+        $registryMap = blog_category_map();
+        $summaries = [];
+        foreach ($registryMap as $slug => $category) {
+            $summaries[$slug] = $category + [
+                'count' => 0,
+                'published_count' => 0,
+                'draft_count' => 0,
+                'is_registered' => true,
+            ];
+        }
+
+        $orphanOrder = 900;
+        foreach (blog_posts($onlyPublished) as $post) {
+            $category = blog_post_category($post, $registryMap);
+            $slug = $category['slug'];
+            if (!isset($summaries[$slug])) {
+                $category['order'] = ++$orphanOrder;
+                $summaries[$slug] = $category + [
+                    'count' => 0,
+                    'published_count' => 0,
+                    'draft_count' => 0,
+                ];
+            }
+            $summaries[$slug]['count']++;
+            if (!empty($post['published'])) {
+                $summaries[$slug]['published_count']++;
+            } else {
+                $summaries[$slug]['draft_count']++;
+            }
+        }
+
+        $items = array_values($summaries);
+        usort($items, static fn($a, $b) => [$a['order'], shop_fold($a['name'])] <=> [$b['order'], shop_fold($b['name'])]);
+        return $items;
+    }
+
+    function blog_posts_by_category(string $categorySlug, bool $onlyPublished = true): array
+    {
+        $slug = blog_category_slugify($categorySlug);
+        if ($slug === '') {
+            return blog_posts($onlyPublished);
+        }
+        return array_values(array_filter(
+            blog_posts($onlyPublished),
+            static fn(array $post): bool => ($post['category'] ?? '') === $slug
+        ));
+    }
+
     function blog_default_posts(): array
     {
         return [
             [
                 'slug'      => 'project-nexus-tanitimi',
                 'title'     => 'Project: Nexus\'a hoş geldiniz',
+                'category'  => 'duyuru',
                 'tag'       => 'Duyuru',
                 'date'      => '2026-10-12',
                 'excerpt'   => 'Karanlık sokaklarda kendi yolunu bulacağın yeni nesil RPG deneyimimizi nihayet anlatıyoruz. İşte Nexus\'un dünyası ve bizim hikayemiz.',
@@ -555,6 +736,7 @@ if (!defined('DG_SHOP')) {
             [
                 'slug'      => 'atmosfer-nasil-kurulur',
                 'title'     => 'Karanlık sokakların atmosferi nasıl kurulur?',
+                'category'  => 'gelistirici-gunlugu',
                 'tag'       => 'Geliştirici günlüğü',
                 'date'      => '2026-09-28',
                 'excerpt'   => 'Işık, ses ve ritim: Nexus\'un şehrine nefes aldıran üç katman. Sanat ekibimizin atmosfer üzerine notları.',
@@ -568,6 +750,7 @@ if (!defined('DG_SHOP')) {
             [
                 'slug'      => 'prototipten-uretime',
                 'title'     => 'Prototipten üretime: stüdyodan notlar',
+                'category'  => 'studyo',
                 'tag'       => 'Stüdyo',
                 'date'      => '2026-09-10',
                 'excerpt'   => 'Bir fikrin oyun olma yolculuğu: kısa döngüler, erken prototipler ve bolca oynanış testi. Sürecimizi şeffafça paylaşıyoruz.',
@@ -593,6 +776,12 @@ if (!defined('DG_SHOP')) {
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || strtotime($date) === false) {
             $date = date('Y-m-d');
         }
+        $tag = (string)($p['tag'] ?? '');
+        $rawCategory = trim((string)($p['category'] ?? $p['category_slug'] ?? ''));
+        $category = blog_category_slugify($rawCategory !== '' ? $rawCategory : $tag);
+        if ($category === '') {
+            $category = 'genel';
+        }
         $image = trim((string)($p['image'] ?? ''));
         if ($image !== '' && !preg_match('~^(https?://|[a-z0-9_./-]+\.(png|jpe?g|webp|gif|svg))$~i', $image)) {
             $image = '';
@@ -601,7 +790,8 @@ if (!defined('DG_SHOP')) {
         return [
             'slug'      => $slug,
             'title'     => (string)($p['title'] ?? ''),
-            'tag'       => (string)($p['tag'] ?? ''),
+            'category'  => $category,
+            'tag'       => $tag,
             'date'      => $date,
             'excerpt'   => (string)($p['excerpt'] ?? ''),
             'content'   => (string)($p['content'] ?? ''),
@@ -637,6 +827,7 @@ if (!defined('DG_SHOP')) {
             shop_write_json(blog_file(), array_map('blog_normalize_post', $posts));
         }
         $normalized = [];
+        $categoryMap = blog_category_map();
         foreach (array_values($posts) as $i => $post) {
             if (!is_array($post) || ($post['title'] ?? '') === '') {
                 continue;
@@ -645,6 +836,10 @@ if (!defined('DG_SHOP')) {
             if ($only_published && !$post['published']) {
                 continue;
             }
+            $category = blog_post_category($post, $categoryMap);
+            $post['category'] = $category['slug'];
+            // category_name yalnızca okuma anında eklenir; JSON'da saklanmaz.
+            $post['category_name'] = $category['name'];
             $normalized[] = $post;
         }
         usort($normalized, fn($a, $b) => [$b['date'], $a['order']] <=> [$a['date'], $b['order']]);

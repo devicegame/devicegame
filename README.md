@@ -88,10 +88,12 @@ ya da `DG_ADMIN_PASSWORD` ortam değişkeni). Dört bölüm vardır:
   sıralama, yayına alma/gizleme ve silme. Kayıtlar `storage/slides.json`
   dosyasındadır.
 - **Blog** — `/blog` adresinde yayınlanan yazılar: ekleme, düzenleme,
-  yayına alma/gizleme ve silme. Kayıtlar `storage/blog.json` dosyasındadır.
-  Metin biçimi: boş satır = paragraf, `## ` = başlık, `- ` = liste.
-  Aynı yazılar D-Coin yönetim panelindeki `/admin/blog.php` bölümünden
-  zengin metin editörüyle de yönetilebilir; iki panel aynı veriyi kullanır.
+  yayına alma/gizleme ve silme. Yazılar `storage/blog.json`, kategoriler
+  `storage/blog-categories.json` dosyasında tutulur. Kategori filtreleri
+  `/blog/index.php?kategori=...` adresini kullanır. Metin biçimi: boş satır
+  = paragraf, `## ` = başlık, `- ` = liste. Aynı yazılar D-Coin yönetim
+  panelindeki `/admin/blog.php` bölümünden zengin metin editörüyle ve
+  kategori yöneticisiyle de yönetilebilir; iki panel aynı veriyi kullanır.
 
 Mobilde ürün ve sepet sayfalarında sabit bir işlem çubuğu (fiyat + sepete
 ekle / siparişi onayla) görünür; WhatsApp balonu bu sayfalarda gizlenir.

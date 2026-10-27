@@ -255,6 +255,7 @@ if (!in_array($section, ['siparisler', 'urunler', 'slider', 'blog'], true)) {
 $admin_products = $is_admin ? shop_products() : [];
 $admin_slides = $is_admin ? shop_slides_all() : [];
 $admin_posts = $is_admin ? blog_posts(false) : [];
+$admin_blog_categories = $is_admin ? blog_category_summaries(false) : [];
 $edit_product = null;
 if ($is_admin && isset($_GET['duzenle']) && $section === 'urunler') {
     $edit_product = shop_product((string)$_GET['duzenle']);
@@ -756,14 +757,23 @@ unset($_SESSION['admin_flash']);
                         </div>
                         <div class="form-2">
                             <div class="field">
-                                <label for="b-tag">Etiket</label>
-                                <input type="text" id="b-tag" name="tag" value="<?php echo e($edit_post['tag'] ?? ''); ?>" placeholder="Duyuru, Geliştirici günlüğü…">
+                                <label for="b-category">Kategori *</label>
+                                <select id="b-category" name="category" required>
+                                    <?php foreach ($admin_blog_categories as $category): ?>
+                                        <option value="<?php echo e($category['slug']); ?>" <?php echo blog_category_slugify((string)($edit_post['category'] ?? 'genel')) === (string)$category['slug'] ? 'selected' : ''; ?>><?php echo e($category['name']); ?> (<?php echo (int)$category['count']; ?>)</option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <small>Kategori listesi <a href="admin/blog.php#blog-categories">D-Coin yönetim panelinden</a> düzenlenir.</small>
                             </div>
                             <div class="field">
                                 <label for="b-date">Tarih</label>
                                 <input type="date" id="b-date" name="date"
                                        value="<?php echo e($edit_post['date'] ?? date('Y-m-d')); ?>">
                             </div>
+                        </div>
+                        <div class="field">
+                            <label for="b-tag">Etiket <small>(opsiyonel kısa rozet)</small></label>
+                            <input type="text" id="b-tag" name="tag" value="<?php echo e($edit_post['tag'] ?? ''); ?>" placeholder="Güncelleme, Video, Röportaj…">
                         </div>
                         <div class="field">
                             <label for="b-excerpt">Özet <small>(liste sayfasında görünür)</small></label>
@@ -832,7 +842,7 @@ unset($_SESSION['admin_flash']);
                                     </div>
                                     <div class="manage-info">
                                         <strong><?php echo e($post['title']); ?></strong>
-                                        <span><?php echo e(date('d.m.Y', strtotime($post['date']))); ?><?php echo $post['tag'] !== '' ? ' · ' . e($post['tag']) : ''; ?> · <?php echo $post['published'] ? 'Yayında' : 'Taslak'; ?></span>
+                                        <span><?php echo e(date('d.m.Y', strtotime($post['date']))); ?> · <?php echo e($post['category_name'] ?? 'Genel'); ?><?php echo $post['tag'] !== '' && blog_category_slugify((string)$post['tag']) !== (string)($post['category'] ?? '') && shop_fold((string)$post['tag']) !== shop_fold((string)($post['category_name'] ?? '')) ? ' · ' . e($post['tag']) : ''; ?> · <?php echo $post['published'] ? 'Yayında' : 'Taslak'; ?></span>
                                     </div>
                                     <div class="manage-actions">
                                         <form method="post" action="admin.php?bolum=blog">
