@@ -22,6 +22,16 @@ $page_title = $activeCategory ? $activeCategory['name'] . ' Yazıları' : 'Blog'
 $page_meta_desc = $activeCategory && trim((string)$activeCategory['description']) !== ''
     ? trim((string)$activeCategory['description'])
     : 'Device Game haberleri, geliştirici günlükleri ve stüdyo notları. Project: Nexus yolculuğu ve mağaza duyuruları.';
+$page_canonical = false;
+if ($activeCategorySlug === '') {
+    $page_canonical = 'blog/index.php';
+} elseif ($activeCategory && (int)($activeCategory['published_count'] ?? 0) > 0) {
+    $page_canonical = 'blog/index.php?kategori=' . rawurlencode($activeCategorySlug);
+}
+$page_robots = $activeCategorySlug !== '' && (!$activeCategory || (int)($activeCategory['published_count'] ?? 0) <= 0) ? 'noindex,follow' : '';
+$page_og_type = 'website';
+$page_og_title = $page_title;
+$page_og_desc = $page_meta_desc;
 $page_css = ['shop.css', 'blog.css'];
 $body_class = 'shop-page';
 include __DIR__ . '/../header.php';
@@ -33,11 +43,11 @@ include __DIR__ . '/../header.php';
         <h1><?php echo $activeCategory ? e($activeCategory['name']) . ' yazıları.' : 'Haberler &amp; geliştirici günlükleri.'; ?></h1>
         <p class="muted"><?php echo e($activeCategory && trim((string)$activeCategory['description']) !== '' ? $activeCategory['description'] : 'Stüdyodan notlar, proje duyuruları ve perde arkası. Yeni yazılardan haberdar olmak için ara sıra uğra.'); ?></p>
         <?php if ($allPosts): ?>
-            <nav class="chips blog-categories" aria-label="Blog kategorileri">
-                <a class="chip" href="index.php"<?php echo $activeCategorySlug === '' ? ' aria-current="true"' : ''; ?>>Tümü <small><?php echo count($allPosts); ?></small></a>
+            <nav class="chips blog-categories" id="blog-kategoriler" style="scroll-margin-top:7rem" aria-label="Blog kategorileri">
+                <a class="chip" href="index.php#blog-kategoriler"<?php echo $activeCategorySlug === '' ? ' aria-current="true"' : ''; ?>>Tümü <small><?php echo count($allPosts); ?></small></a>
                 <?php foreach ($categorySummaries as $category): ?>
                     <?php if ((int)$category['published_count'] > 0 || (string)$category['slug'] === $activeCategorySlug): ?>
-                        <a class="chip" href="index.php?kategori=<?php echo urlencode((string)$category['slug']); ?>"<?php echo (string)$category['slug'] === $activeCategorySlug ? ' aria-current="true"' : ''; ?>><?php echo e($category['name']); ?> <small><?php echo (int)$category['published_count']; ?></small></a>
+                        <a class="chip" href="index.php?kategori=<?php echo urlencode((string)$category['slug']); ?>#blog-kategoriler"<?php echo (string)$category['slug'] === $activeCategorySlug ? ' aria-current="true"' : ''; ?>><?php echo e($category['name']); ?> <small><?php echo (int)$category['published_count']; ?></small></a>
                     <?php endif; ?>
                 <?php endforeach; ?>
             </nav>
@@ -49,7 +59,7 @@ include __DIR__ . '/../header.php';
             <?php if ($activeCategorySlug !== ''): ?>
                 <h3>Bu kategoride henüz yayınlanmış yazı yok.</h3>
                 <p>Başka bir kategoriye bakabilir veya tüm blog yazılarını görüntüleyebilirsin.</p>
-                <a class="btn btn-primary" href="index.php">Tüm yazıları göster</a>
+                <a class="btn btn-primary" href="index.php#blog-kategoriler">Tüm yazıları göster</a>
             <?php else: ?>
                 <h3>Henüz yazı yayınlanmadı.</h3>
                 <p>İlk yazılar yakında burada olacak. O zamana kadar mağazaya göz atabilirsin.</p>

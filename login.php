@@ -9,6 +9,8 @@ $flash = flash_get();
 $next = (string)($_GET['next'] ?? 'index.php');
 
 $page_title = 'Giriş yap';
+$page_canonical = false;
+$page_robots = 'noindex,nofollow';
 $page_css = ['shop.css', 'assets/css/dcoin.css'];
 $body_class = 'shop-page auth-page';
 include __DIR__ . '/header.php';
@@ -50,8 +52,7 @@ include __DIR__ . '/header.php';
             </form>
 
             <div class="auth-foot">
-                <p>Hesabın yok mu? <a href="register.php">Kayıt ol</a></p>
-                <p class="auth-demo">İlk kurulum hesabı: <code>admin@devicegame.com</code> / <code>Admin123!</code></p>
+                <p>Hesabın yok mu? <a href="register.php?next=<?php echo rawurlencode($next); ?>">Kayıt ol</a></p>
             </div>
         </div>
 

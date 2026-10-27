@@ -13,6 +13,60 @@ if (!defined('DG_SHOP')) {
         function e($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
     }
 
+    /** Uygulamanın web köküne göre mutlak adres üretir (canonical/OG/sitemap). */
+    function dg_site_base_url(): string
+    {
+        $forwardedProto = strtolower(trim(explode(',', (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''))[0] ?? ''));
+        $https = (!empty($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off')
+            || (int)($_SERVER['SERVER_PORT'] ?? 0) === 443
+            || $forwardedProto === 'https';
+        $scheme = $https ? 'https' : 'http';
+
+        $host = trim((string)($_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? ''));
+        $host = trim(explode(',', $host)[0] ?? '');
+        if (!preg_match('/^(?:localhost|[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+)(?::\d{1,5})?$/i', $host)) {
+            $host = 'devicegame.com';
+            $scheme = 'https';
+        }
+
+        $basePath = '';
+        $baseDerived = false;
+        $documentRoot = isset($_SERVER['DOCUMENT_ROOT']) ? realpath((string)$_SERVER['DOCUMENT_ROOT']) : false;
+        $appRoot = realpath(dirname(__DIR__));
+        if ($documentRoot && $appRoot) {
+            $documentRoot = rtrim(str_replace('\\', '/', $documentRoot), '/');
+            $appRoot = rtrim(str_replace('\\', '/', $appRoot), '/');
+            if ($appRoot === $documentRoot) {
+                $baseDerived = true;
+            } elseif (str_starts_with($appRoot . '/', $documentRoot . '/')) {
+                $basePath = substr($appRoot, strlen($documentRoot));
+                $baseDerived = true;
+            }
+        }
+        if (!$baseDerived) {
+            $script = '/' . trim(str_replace('\\', '/', (string)($_SERVER['SCRIPT_NAME'] ?? '/index.php')), '/');
+            $dir = str_replace('\\', '/', dirname($script));
+            if (in_array(basename($dir), ['admin', 'api', 'blog', 'sosyal'], true)) {
+                $dir = str_replace('\\', '/', dirname($dir));
+            }
+            $basePath = ($dir === '/' || $dir === '.') ? '' : rtrim($dir, '/');
+        }
+
+        return $scheme . '://' . $host . $basePath;
+    }
+
+    function dg_absolute_url(string $path = ''): string
+    {
+        $path = trim($path);
+        if ($path === '') return dg_site_base_url() . '/';
+        if (preg_match('~^(?:https?:)?//~i', $path)) return $path;
+        if (str_starts_with($path, '/')) {
+            $parts = parse_url(dg_site_base_url());
+            return ($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? 'devicegame.com') . $path;
+        }
+        return dg_site_base_url() . '/' . ltrim($path, '/');
+    }
+
     /* ------------------------------------------------------------------
      * Oturum
      * ---------------------------------------------------------------- */

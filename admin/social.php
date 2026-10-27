@@ -20,6 +20,18 @@ function dg_social_return(array $params = []): string
     return '../admin/social.php' . ($params ? '?' . http_build_query($params) : '');
 }
 
+function dg_social_format_bytes(int $bytes): string
+{
+    $units = ['Bayt', 'KB', 'MB', 'GB'];
+    $value = (float)max(0, $bytes);
+    $unit = 0;
+    while ($value >= 1024 && $unit < count($units) - 1) {
+        $value /= 1024;
+        $unit++;
+    }
+    return number_format($value, $unit === 0 ? 0 : 1, ',', '.') . ' ' . $units[$unit];
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $returnParams = ['gorunum' => (string)($_POST['return_view'] ?? $view)];
     if (!csrf_verify($_POST['csrf'] ?? '')) {
@@ -38,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!empty($_POST['edit_slug'])) $editingTopic = social_topic((string)$_POST['edit_slug'], false);
             } else {
                 flash_set(!empty($_POST['edit_slug']) ? 'Sosyal konusu güncellendi.' : 'Sosyal konusu eklendi.');
-                header('Location: ' . dg_social_admin_url(['gorunum' => 'konular']));
+                header('Location: ' . dg_social_admin_url(['gorunum' => 'konular']) . '#konu-listesi');
                 exit;
             }
         }
@@ -47,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $result = social_delete_topic($user, (string)($_POST['topic_slug'] ?? ''));
             if (!empty($result['errors'])) flash_error_set(implode(' ', $result['errors']));
             else flash_set('Sosyal konusu silindi.');
-            header('Location: ' . dg_social_admin_url(['gorunum' => 'konular']));
+            header('Location: ' . dg_social_admin_url(['gorunum' => 'konular']) . '#konu-listesi');
             exit;
         }
 
@@ -59,11 +71,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
+        if (isset($_POST['mark_backup'])) {
+            $result = social_mark_backup($user);
+            if (!empty($result['errors'])) flash_error_set(implode(' ', $result['errors']));
+            else flash_set('Sosyal yedeği alındığı işaretlendi. Bu kayıt yalnızca bakım takibi içindir; gerçek klasör yedeğini ayrıca saklayın.');
+            header('Location: ' . dg_social_admin_url(['gorunum' => 'bakim']) . '#yedek-durumu');
+            exit;
+        }
+
         if (isset($_POST['rebuild_indexes'])) {
             $result = social_rebuild_indexes();
             if (!empty($result['errors'])) flash_error_set(implode(' ', $result['errors']));
             else flash_set('Sosyal indeksleri yeniden oluşturuldu: ' . (int)$result['posts'] . ' gönderi, ' . (int)$result['comments'] . ' yorum.');
-            header('Location: ' . dg_social_admin_url(['gorunum' => 'bakim']));
+            header('Location: ' . dg_social_admin_url(['gorunum' => 'bakim']) . '#indeks-bakimi');
             exit;
         }
     } catch (Throwable $exception) {
@@ -95,6 +115,17 @@ $topicForm = [
 
 $stats = social_stats(true);
 $storageStats = social_storage_stats();
+$health = null;
+$healthError = '';
+if ($view === 'bakim') {
+    try {
+        $health = social_health_report();
+        $storageStats = $health['totals'];
+    } catch (Throwable $exception) {
+        error_log('[admin social health] ' . $exception->getMessage());
+        $healthError = 'Sağlık raporu oluşturulamadı. Depolama izinlerini ve JSON bütünlüğünü kontrol edin.';
+    }
+}
 $pendingPosts = social_list_posts(['status' => 'pending', 'include_moderation' => true, 'sort' => 'new', 'per_page' => 50], $user)['items'];
 $pendingComments = array_values(array_filter(social_moderation_comments(100), static fn(array $item): bool => ($item['status'] ?? '') === 'pending'));
 $reports = social_reports();
@@ -138,7 +169,14 @@ admin_head('Sosyal Moderasyon');
   <div class="dg-stat"><label>📰 Yayındaki Gönderi</label><strong><?= (int)$stats['posts'] ?></strong><small>Akışta görünen içerikler</small></div>
   <div class="dg-stat"><label>⏳ Onay Bekleyen</label><strong><?= count($pendingPosts) + count($pendingComments) ?></strong><small><?= count($pendingPosts) ?> gönderi · <?= count($pendingComments) ?> yorum</small></div>
   <div class="dg-stat"><label>🚩 Açık Şikâyet</label><strong><?= (int)$stats['open_reports'] ?></strong><small>İnceleme bekleyen bildirimler</small></div>
-  <div class="dg-stat"><label>💾 Sosyal Veri</label><strong><?= number_format(((int)$storageStats['bytes']) / 1024, 1, ',', '.') ?> KB</strong><small><?= (int)$storageStats['files'] ?> dosya</small></div>
+  <div class="dg-stat"><label>💾 Sosyal Veri</label><strong><?= e(dg_social_format_bytes((int)$storageStats['bytes'])) ?></strong><small><?= (int)$storageStats['files'] ?> dosya</small></div>
+</div>
+
+<div class="dg-stats" style="margin-bottom:16px">
+  <div class="dg-stat"><label>📊 Anket</label><strong><?= (int)($stats['polls'] ?? 0) ?></strong><small>Yayındaki anketli gönderi</small></div>
+  <div class="dg-stat"><label>🗓 Yaklaşan Etkinlik</label><strong><?= (int)($stats['upcoming_events'] ?? 0) ?></strong><small>Katılım açık etkinlik</small></div>
+  <div class="dg-stat"><label>🏆 Editör Ödülü</label><strong><?= (int)($stats['awards'] ?? 0) ?></strong><small>Toplam <?= number_format((int)($stats['award_dcoin'] ?? 0), 0, ',', '.') ?> D-Coin</small></div>
+  <div class="dg-stat"><label>👥 Sosyal Profil</label><strong><?= number_format((int)($stats['members'] ?? 0), 0, ',', '.') ?></strong><small><?= count($topics) ?> konu tanımlı</small></div>
 </div>
 
 <nav class="dg-social-admin-tabs" aria-label="Sosyal yönetim görünümleri">
@@ -151,7 +189,7 @@ admin_head('Sosyal Moderasyon');
 
 <?php if ($view === 'onay'): ?>
   <div class="dg-social-admin-grid">
-    <section class="dg-card">
+    <section class="dg-card" id="bekleyen-gonderiler" style="scroll-margin-top:110px">
       <div class="dg-card-head"><h2>Bekleyen Gönderiler</h2><span class="dg-badge"><?= count($pendingPosts) ?></span></div>
       <?php if (!$pendingPosts): ?>
         <div class="dg-empty">Onay bekleyen gönderi yok.</div>
@@ -167,6 +205,9 @@ admin_head('Sosyal Moderasyon');
                   <span class="dg-chip">@<?= e($post['author_username']) ?></span>
                   <span class="dg-chip"><?= e($post['topic_slug']) ?></span>
                   <span class="dg-chip"><?= e(date('d.m.Y H:i', (int)$post['created_at'])) ?></span>
+                  <?php if (!empty($fullPost['poll'])): ?><span class="dg-chip">📊 <?= count((array)$fullPost['poll']['options']) ?> seçenekli anket</span><?php endif; ?>
+                  <?php if (social_is_event_post($fullPost)): ?><span class="dg-chip">🗓 <?= e(date('d.m.Y H:i', (int)($fullPost['meta']['event_at'] ?? 0))) ?> · <?= e($fullPost['meta']['event_place'] ?? '') ?></span><?php endif; ?>
+                  <?php if (!empty($fullPost['image'])): ?><span class="dg-chip">Görsel var</span><?php endif; ?>
                 </div>
               </div>
               <div class="dg-social-admin-actions">
@@ -180,7 +221,7 @@ admin_head('Sosyal Moderasyon');
       <?php endif; ?>
     </section>
 
-    <section class="dg-card">
+    <section class="dg-card" id="bekleyen-yorumlar" style="scroll-margin-top:110px">
       <div class="dg-card-head"><h2>Bekleyen Yorumlar</h2><span class="dg-badge"><?= count($pendingComments) ?></span></div>
       <?php if (!$pendingComments): ?>
         <div class="dg-empty">Onay bekleyen yorum yok.</div>
@@ -250,9 +291,9 @@ admin_head('Sosyal Moderasyon');
 <?php endif; ?>
 
 <?php if ($view === 'gonderiler'): ?>
-  <section class="dg-card">
+  <section class="dg-card" id="gonderi-listesi" style="scroll-margin-top:110px">
     <div class="dg-card-head"><h2>Tüm Gönderiler</h2><span class="dg-badge"><?= (int)$postResult['total'] ?></span></div>
-    <form method="get" class="dg-social-admin-filter">
+    <form method="get" action="social.php#gonderi-listesi" class="dg-social-admin-filter">
       <input type="hidden" name="gorunum" value="gonderiler">
       <div class="dg-search"><input type="search" name="q" value="<?= e($postQuery) ?>" placeholder="Başlık, içerik, etiket veya kullanıcı ara"></div>
       <select name="durum" aria-label="Durum">
@@ -262,14 +303,14 @@ admin_head('Sosyal Moderasyon');
         <option value="hidden"<?= $postStatus === 'hidden' ? ' selected' : '' ?>>Gizli</option>
       </select>
       <button class="dg-btn dg-btn-ghost dg-btn-sm">Filtrele</button>
-      <?php if ($postQuery !== '' || $postStatus !== 'all'): ?><a class="dg-btn dg-btn-ghost dg-btn-sm" href="<?= e(dg_social_admin_url(['gorunum' => 'gonderiler'])) ?>">Temizle</a><?php endif; ?>
+      <?php if ($postQuery !== '' || $postStatus !== 'all'): ?><a class="dg-btn dg-btn-ghost dg-btn-sm" href="<?= e(dg_social_admin_url(['gorunum' => 'gonderiler'])) ?>#gonderi-listesi">Temizle</a><?php endif; ?>
     </form>
     <?php if (!$postResult['items']): ?>
       <div class="dg-empty">Filtreye uyan gönderi bulunamadı.</div>
     <?php else: ?>
       <div class="dg-social-admin-list">
         <?php foreach ($postResult['items'] as $post): ?>
-          <article class="dg-social-admin-item">
+          <article class="dg-social-admin-item" id="admin-gonderi-<?= (int)$post['id'] ?>" style="scroll-margin-top:110px">
             <div>
               <a class="dg-social-admin-title" href="../sosyal/gonderi.php?id=<?= (int)$post['id'] ?>" target="_blank" rel="noopener"><?= e($post['title']) ?></a>
               <p><?= e($post['excerpt']) ?></p>
@@ -279,12 +320,18 @@ admin_head('Sosyal Moderasyon');
                 <span class="dg-chip"><?= e($post['topic_slug']) ?></span>
                 <span class="dg-chip">GG <?= (int)$post['gg_count'] ?></span>
                 <span class="dg-chip"><?= (int)$post['comment_count'] ?> yorum</span>
+                <?php if (!empty($post['poll'])): ?><span class="dg-chip">📊 <?= (int)($post['poll']['total_votes'] ?? 0) ?> oy</span><?php endif; ?>
+                <?php if (social_is_event_post($post)): ?><span class="dg-chip">🗓 <?= (int)($post['rsvp_count'] ?? 0) ?> katılımcı</span><?php endif; ?>
+                <?php if (!empty($post['award'])): ?><span class="dg-chip on">🏆 +<?= number_format((int)$post['award']['amount'], 0, ',', '.') ?> D-Coin</span><?php endif; ?>
                 <?php if (!empty($post['pinned'])): ?><span class="dg-chip on">Sabit</span><?php endif; ?>
                 <?php if (!empty($post['locked'])): ?><span class="dg-chip">Kilitli</span><?php endif; ?>
               </div>
             </div>
             <div class="dg-social-admin-actions">
               <a class="dg-btn dg-btn-ghost dg-btn-sm" href="../sosyal/yeni.php?duzenle=<?= (int)$post['id'] ?>" target="_blank" rel="noopener">Düzenle</a>
+              <?php if (($post['status'] ?? '') === 'published' && empty($post['award']) && (int)($post['user_id'] ?? 0) > 0 && (int)$post['user_id'] !== (int)$user['id']): ?>
+                <a class="dg-btn dg-btn-ghost dg-btn-sm" href="../sosyal/gonderi.php?id=<?= (int)$post['id'] ?>#gonderi-detay" target="_blank" rel="noopener">🏆 Ödül ver</a>
+              <?php endif; ?>
               <?php if ($post['status'] !== 'published'): ?>
                 <form method="post" action="../sosyal/aksiyon.php"><?= csrf_field() ?><input type="hidden" name="islem" value="gonderi_onayla"><input type="hidden" name="post_id" value="<?= (int)$post['id'] ?>"><input type="hidden" name="return" value="<?= e($currentReturn) ?>"><button class="dg-btn dg-btn-primary dg-btn-sm">Yayınla</button></form>
               <?php else: ?>
@@ -299,9 +346,9 @@ admin_head('Sosyal Moderasyon');
       </div>
       <?php if ((int)$postResult['pages'] > 1): ?>
         <div class="dg-social-admin-pagination">
-          <?php if ($postPage > 1): ?><a href="<?= e(dg_social_admin_url(['gorunum' => 'gonderiler', 'q' => $postQuery, 'durum' => $postStatus, 'sayfa' => $postPage - 1])) ?>">← Önceki</a><?php endif; ?>
+          <?php if ($postPage > 1): ?><a href="<?= e(dg_social_admin_url(['gorunum' => 'gonderiler', 'q' => $postQuery, 'durum' => $postStatus, 'sayfa' => $postPage - 1])) ?>#gonderi-listesi">← Önceki</a><?php endif; ?>
           <span><?= $postPage ?> / <?= (int)$postResult['pages'] ?></span>
-          <?php if ($postPage < (int)$postResult['pages']): ?><a href="<?= e(dg_social_admin_url(['gorunum' => 'gonderiler', 'q' => $postQuery, 'durum' => $postStatus, 'sayfa' => $postPage + 1])) ?>">Sonraki →</a><?php endif; ?>
+          <?php if ($postPage < (int)$postResult['pages']): ?><a href="<?= e(dg_social_admin_url(['gorunum' => 'gonderiler', 'q' => $postQuery, 'durum' => $postStatus, 'sayfa' => $postPage + 1])) ?>#gonderi-listesi">Sonraki →</a><?php endif; ?>
         </div>
       <?php endif; ?>
     <?php endif; ?>
@@ -310,7 +357,7 @@ admin_head('Sosyal Moderasyon');
 
 <?php if ($view === 'konular'): ?>
   <div class="dg-social-admin-grid">
-    <section class="dg-card">
+    <section class="dg-card" id="konu-formu" style="scroll-margin-top:110px">
       <div class="dg-card-head"><h2><?= $editingTopic ? 'Konuyu Düzenle' : 'Yeni Konu' ?></h2><?php if ($editingTopic): ?><a class="dg-btn dg-btn-ghost dg-btn-sm" href="<?= e(dg_social_admin_url(['gorunum' => 'konular'])) ?>">İptal</a><?php endif; ?></div>
       <div class="dg-card-body">
         <?php if ($topicErrors): ?>
@@ -333,7 +380,7 @@ admin_head('Sosyal Moderasyon');
       </div>
     </section>
 
-    <section class="dg-card">
+    <section class="dg-card" id="konu-listesi" style="scroll-margin-top:110px">
       <div class="dg-card-head"><h2>Forum Konuları</h2><span class="dg-badge"><?= count($topics) ?></span></div>
       <div class="dg-social-admin-list">
         <?php foreach ($topics as $topic): ?>
@@ -348,8 +395,8 @@ admin_head('Sosyal Moderasyon');
               </div>
             </div>
             <div class="dg-social-admin-actions">
-              <a class="dg-btn dg-btn-ghost dg-btn-sm" href="../sosyal/index.php?konu=<?= rawurlencode((string)$topic['slug']) ?>" target="_blank" rel="noopener">Görüntüle</a>
-              <a class="dg-btn dg-btn-ghost dg-btn-sm" href="<?= e(dg_social_admin_url(['gorunum' => 'konular', 'konu_duzenle' => (string)$topic['slug']])) ?>">Düzenle</a>
+              <a class="dg-btn dg-btn-ghost dg-btn-sm" href="../sosyal/index.php?konu=<?= rawurlencode((string)$topic['slug']) ?>#akis" target="_blank" rel="noopener">Görüntüle</a>
+              <a class="dg-btn dg-btn-ghost dg-btn-sm" href="<?= e(dg_social_admin_url(['gorunum' => 'konular', 'konu_duzenle' => (string)$topic['slug']])) ?>#konu-formu">Düzenle</a>
               <form method="post" onsubmit="return confirm('Bu konu silinsin mi? İçinde gönderi varsa silinmez.')"><?= csrf_field() ?><input type="hidden" name="topic_slug" value="<?= e($topic['slug']) ?>"><button name="delete_topic" value="1" class="dg-btn dg-btn-ghost dg-btn-sm dg-social-danger">Sil</button></form>
             </div>
           </article>
@@ -360,24 +407,106 @@ admin_head('Sosyal Moderasyon');
 <?php endif; ?>
 
 <?php if ($view === 'bakim'): ?>
+  <?php if ($healthError !== ''): ?>
+    <div class="dg-alert dg-alert-error" style="margin-bottom:16px"><?= e($healthError) ?></div>
+  <?php endif; ?>
+
   <div class="dg-social-admin-grid">
-    <section class="dg-card">
-      <div class="dg-card-head"><h2>Depolama</h2><span class="dg-badge">JSON / JSONL</span></div>
+    <section class="dg-card" id="saglik-durumu" style="scroll-margin-top:110px">
+      <div class="dg-card-head">
+        <h2>Sağlık Durumu</h2>
+        <?php if ($health): ?><span class="dg-badge"><?= !empty($health['healthy']) ? 'KRİTİK SORUN YOK' : 'KONTROL GEREKLİ' ?></span><?php endif; ?>
+      </div>
+      <?php if ($health): ?>
+        <div class="dg-social-admin-list">
+          <?php foreach ((array)$health['checks'] as $check): ?>
+            <article class="dg-social-admin-item">
+              <div>
+                <strong><?= !empty($check['ok']) ? '✅' : (($check['level'] ?? '') === 'warning' ? '⚠️' : '⛔') ?> <?= e($check['label']) ?></strong>
+                <p><?= e($check['detail']) ?></p>
+              </div>
+              <span class="dg-chip <?= !empty($check['ok']) ? 'on' : '' ?>"><?= !empty($check['ok']) ? 'Tamam' : e($check['level']) ?></span>
+            </article>
+          <?php endforeach; ?>
+        </div>
+        <div class="dg-card-body" style="padding-top:0">
+          <p class="dg-muted" style="font-size:13px;line-height:1.7">
+            <b><?= (int)$health['post_files'] ?></b> gönderi dosyası · <b><?= (int)$health['index_entries'] ?></b> akış özeti ·
+            <b><?= (int)$health['invalid_posts'] ?></b> bozuk JSON · <b><?= (int)$health['missing_images'] ?></b> eksik görsel ·
+            <b><?= (int)$health['orphan_images'] ?></b> sahipsiz görsel (<?= e(dg_social_format_bytes((int)$health['orphan_bytes'])) ?>)
+          </p>
+          <p class="dg-muted" style="font-size:12px;line-height:1.6">Sahipsiz görseller otomatik silinmez. Önce yedek alıp dosyayı manuel doğrulayın; indeks yeniden oluşturma görselleri temizlemez.</p>
+        </div>
+      <?php else: ?>
+        <div class="dg-empty">Sağlık özeti alınamadı.</div>
+      <?php endif; ?>
+    </section>
+
+    <section class="dg-card" id="yedek-durumu" style="scroll-margin-top:110px">
+      <div class="dg-card-head"><h2>Yedek Durumu</h2><span class="dg-badge">MANUEL İŞARET</span></div>
       <div class="dg-card-body">
-        <p class="dg-muted" style="font-size:13px;line-height:1.6">Sosyal veriler <code>storage/social/</code> altında profiller, gönderi belgeleri, yorum JSONL dosyaları ve akış indeksleri olarak saklanır. Yüklenen görseller <code>uploads/social/</code> altındadır.</p>
+        <p class="dg-muted" style="font-size:13px;line-height:1.65">DG Social yedeği için şu iki klasörü <b>birlikte</b> indirin:</p>
         <div class="dg-divider"></div>
-        <p><b><?= (int)$storageStats['files'] ?></b> dosya · <b><?= number_format(((int)$storageStats['bytes']) / 1024, 1, ',', '.') ?> KB</b></p>
-        <p class="dg-muted" style="font-size:12px">Yedek alırken iki klasörü birlikte yedekleyin.</p>
+        <p><code>storage/social/</code></p>
+        <p><code>uploads/social/</code></p>
+        <p class="dg-muted" style="font-size:12px;line-height:1.6">Hesaplar ve D-Coin bakiyelerinin de geri yüklenebilmesi için genel site yedeğinde <code>storage/dg/database.json</code> dosyasını da saklayın.</p>
+        <div class="dg-divider"></div>
+        <?php if ($health && (int)$health['last_backup_at'] > 0): ?>
+          <p><b>Son işaret:</b> <?= e(date('d.m.Y H:i', (int)$health['last_backup_at'])) ?><?= (int)$health['last_backup_by'] > 0 ? ' · kullanıcı #' . (int)$health['last_backup_by'] : '' ?></p>
+        <?php else: ?>
+          <p><b>Son işaret:</b> Henüz işaretlenmemiş</p>
+        <?php endif; ?>
+        <ol class="dg-muted" style="font-size:13px;line-height:1.7;margin:10px 0 0 18px;padding:0">
+          <li>Hosting dosya yöneticisi veya FTP ile iki sosyal klasörü indirin.</li>
+          <li>Arşivin açılabildiğini ve tarihli bir kopyasını sakladığınızı doğrulayın.</li>
+          <li>Ardından aşağıdaki düğmeyle bakım işaretini güncelleyin.</li>
+        </ol>
+        <form method="post" style="margin-top:16px" onsubmit="return confirm('İki sosyal klasörün gerçek yedeğini aldınız mı? Bu düğme yalnızca işaret koyar, dosya indirmez.')">
+          <?= csrf_field() ?>
+          <button name="mark_backup" value="1" class="dg-btn dg-btn-primary">Sosyal yedeğini aldım olarak işaretle</button>
+        </form>
       </div>
     </section>
+  </div>
+
+  <div class="dg-social-admin-grid" style="margin-top:16px">
     <section class="dg-card">
+      <div class="dg-card-head"><h2>Depolama Kırılımı</h2><span class="dg-badge">JSON / JSONL</span></div>
+      <div class="dg-card-body">
+        <p><b><?= (int)$storageStats['files'] ?></b> dosya · <b><?= e(dg_social_format_bytes((int)$storageStats['bytes'])) ?></b></p>
+        <p class="dg-muted" style="font-size:12px;line-height:1.6">Veriler çekirdek JSON dışında profiller, gönderi belgeleri, yorum JSONL dosyaları, tepkiler ve hazır indeksler olarak tutulur.</p>
+        <?php if ($health && !empty($health['breakdown'])): ?>
+          <div class="dg-table-wrap" style="margin-top:14px">
+            <table class="dg-table" style="min-width:0">
+              <thead><tr><th>Klasör</th><th>Dosya</th><th>Boyut</th><th>Son değişim</th></tr></thead>
+              <tbody>
+                <?php foreach ((array)$health['breakdown'] as $path => $item): ?>
+                  <tr>
+                    <td><code><?= e($path) ?></code></td>
+                    <td><?= (int)$item['files'] ?></td>
+                    <td><?= e(dg_social_format_bytes((int)$item['bytes'])) ?></td>
+                    <td><?= (int)$item['latest_mtime'] > 0 ? e(date('d.m.Y H:i', (int)$item['latest_mtime'])) : '—' ?></td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+        <?php endif; ?>
+      </div>
+    </section>
+
+    <section class="dg-card" id="indeks-bakimi" style="scroll-margin-top:110px">
       <div class="dg-card-head"><h2>İndeks Bakımı</h2></div>
       <div class="dg-card-body">
-        <p class="dg-muted" style="font-size:13px;line-height:1.6">Akış, konu, profil ve moderasyon indekslerini kanonik gönderi/yorum dosyalarından yeniden oluşturur; yorum ve GG sayaçlarını doğrular.</p>
+        <p class="dg-muted" style="font-size:13px;line-height:1.65">Akış, konu, profil ve moderasyon indekslerini kanonik gönderi/yorum dosyalarından yeniden oluşturur; yorum, GG, anket oyu ve etkinlik katılım sayaçlarını doğrular.</p>
+        <?php if ($health && (int)$health['latest_index_mtime'] > 0): ?>
+          <p style="margin-top:12px"><b>Akış indeksi son değişim:</b> <?= e(date('d.m.Y H:i:s', (int)$health['latest_index_mtime'])) ?></p>
+        <?php endif; ?>
         <form method="post" style="margin-top:16px" onsubmit="return confirm('Sosyal indeksleri yeniden oluşturulsun mu?')">
           <?= csrf_field() ?>
           <button name="rebuild_indexes" value="1" class="dg-btn dg-btn-primary">İndeksleri yeniden oluştur</button>
         </form>
+        <p class="dg-muted" style="font-size:12px;line-height:1.6;margin-top:12px">Büyük topluluklarda işlem birkaç saniye sürebilir. Önce yedek almak en güvenli yoldur.</p>
       </div>
     </section>
   </div>

@@ -28,6 +28,9 @@ $posts = $result['items'];
 $socialStates = social_post_states(array_map(static fn(array $post): int => (int)$post['id'], $posts), $socialUser);
 $matchedProfiles = $query !== '' ? social_search_profiles($query, $socialUser, 6) : [];
 $stats = social_stats(!empty($socialUser['is_admin']));
+$upcomingEvents = social_upcoming_events($socialUser, 3);
+$weeklyHighlights = social_weekly_highlights($socialUser, 3);
+$suggestedProfiles = social_suggested_profiles($socialUser, 4);
 $topicCounts = [];
 foreach ($socialTopics as $topic) {
     $topicCounts[(string)$topic['slug']] = social_list_posts([
@@ -47,6 +50,16 @@ $page_title = $activeTopic ? $activeTopic['name'] . ' — DG Social' : 'DG Socia
 $page_meta_desc = $activeTopic && trim((string)$activeTopic['description']) !== ''
     ? trim((string)$activeTopic['description'])
     : 'DeviceGame oyuncularının forum ve sosyal akış alanı. Oyun önerileri, oyun arkadaşları, rehberler ve stüdyo duyuruları.';
+$page_canonical = false;
+if ($activeTopic && $feed === 'kesfet' && $query === '' && $page <= 1) {
+    $page_canonical = 'sosyal/index.php?konu=' . rawurlencode($topicSlug);
+} elseif ($topicSlug === '' && $feed === 'kesfet' && $query === '' && $page <= 1) {
+    $page_canonical = 'sosyal/index.php';
+}
+$page_robots = ($topicSlug !== '' && !$activeTopic) || $query !== '' || $feed !== 'kesfet' || $page > 1 ? 'noindex,follow' : '';
+$page_og_type = 'website';
+$page_og_title = $page_title;
+$page_og_desc = $page_meta_desc;
 $page_css = ['shop.css', 'social.css'];
 $body_class = 'shop-page social-page';
 include __DIR__ . '/../header.php';
@@ -55,7 +68,7 @@ include __DIR__ . '/../header.php';
 <section class="social-shell">
     <header class="social-hero">
         <div>
-            <p class="eyebrow">DG Social · Topluluk</p>
+            <p class="eyebrow">DG Social · Beta topluluğu</p>
             <h1><?= $activeTopic ? e($activeTopic['name']) . '.' : 'Oyunu birlikte konuşalım.' ?></h1>
             <p><?= e($activeTopic ? ($activeTopic['description'] ?: 'Bu konudaki gönderiler ve tartışmalar.') : 'Oyun önerileri paylaş, ekip arkadaşı bul, rehberler yaz ve DeviceGame projelerini toplulukla birlikte takip et.') ?></p>
         </div>
@@ -68,18 +81,21 @@ include __DIR__ . '/../header.php';
 
     <?= social_subnav('feed') ?>
     <?= social_flash_html() ?>
+    <?php if ($socialUser && $socialProfile): ?>
+        <?= social_onboarding_html($socialUser, $socialProfile, (string)($_GET['hosgeldin'] ?? '') === '1') ?>
+    <?php endif; ?>
 
     <div class="social-layout">
         <aside class="social-sidebar social-sidebar-left">
             <section class="social-panel">
                 <div class="social-panel-head">
                     <h2>Konular</h2>
-                    <?php if ($topicSlug !== ''): ?><a href="index.php">Temizle</a><?php endif; ?>
+                    <?php if ($topicSlug !== ''): ?><a href="<?= e(social_feed_url(array_diff_key($baseParams, ['konu' => true]))) ?>">Temizle</a><?php endif; ?>
                 </div>
                 <nav class="social-topic-list" aria-label="Forum konuları">
-                    <a href="index.php"<?= $topicSlug === '' ? ' aria-current="true"' : '' ?>><span>🌐 Tümü</span><small><?= (int)$stats['posts'] ?></small></a>
+                    <a href="<?= e(social_feed_url(array_diff_key($baseParams, ['konu' => true]))) ?>"<?= $topicSlug === '' ? ' aria-current="true"' : '' ?>><span>🌐 Tümü</span><small><?= (int)$stats['posts'] ?></small></a>
                     <?php foreach ($socialTopics as $topic): ?>
-                        <a href="index.php?konu=<?= rawurlencode((string)$topic['slug']) ?>"<?= $topicSlug === (string)$topic['slug'] ? ' aria-current="true"' : '' ?>>
+                        <a href="<?= e(social_feed_url(array_merge($baseParams, ['konu' => (string)$topic['slug']]))) ?>"<?= $topicSlug === (string)$topic['slug'] ? ' aria-current="true"' : '' ?>>
                             <span><?= e($topic['icon']) ?> <?= e($topic['name']) ?></span>
                             <small><?= (int)($topicCounts[(string)$topic['slug']] ?? 0) ?></small>
                         </a>
@@ -95,10 +111,11 @@ include __DIR__ . '/../header.php';
                     <li>Hesap/key alışverişini yalnızca mağazadan yap.</li>
                     <li>Sorunlu içerikleri tartışmak yerine şikâyet et.</li>
                 </ul>
+                <a class="text-link" href="kurallar.php">Kuralların tamamı</a>
             </section>
         </aside>
 
-        <div class="social-main">
+        <div class="social-main" id="akis" tabindex="-1">
             <?php if ($socialUser): ?>
                 <section class="social-composer-cta">
                     <?= social_avatar_html($socialProfile) ?>
@@ -117,11 +134,11 @@ include __DIR__ . '/../header.php';
 
             <div class="social-toolbar">
                 <nav class="social-tabs" aria-label="Akış türü">
-                    <a href="<?= e(social_query_url('index.php', array_merge($baseParams, ['akis' => '']))) ?>"<?= $feed === 'kesfet' ? ' aria-current="true"' : '' ?>>Keşfet</a>
-                    <a href="<?= e(social_query_url('index.php', array_merge($baseParams, ['akis' => 'takip']))) ?>"<?= $feed === 'takip' ? ' aria-current="true"' : '' ?>>Takip ettiklerim</a>
-                    <a href="<?= e(social_query_url('index.php', array_merge($baseParams, ['akis' => 'kaydedilenler']))) ?>"<?= $feed === 'kaydedilenler' ? ' aria-current="true"' : '' ?>>Kaydedilenler</a>
+                    <a href="<?= e(social_feed_url(array_merge($baseParams, ['akis' => '']))) ?>"<?= $feed === 'kesfet' ? ' aria-current="true"' : '' ?>>Keşfet</a>
+                    <a href="<?= e(social_feed_url(array_merge($baseParams, ['akis' => 'takip']))) ?>"<?= $feed === 'takip' ? ' aria-current="true"' : '' ?>>Takip ettiklerim</a>
+                    <a href="<?= e(social_feed_url(array_merge($baseParams, ['akis' => 'kaydedilenler']))) ?>"<?= $feed === 'kaydedilenler' ? ' aria-current="true"' : '' ?>>Kaydedilenler</a>
                 </nav>
-                <form method="get" class="social-search" role="search">
+                <form method="get" action="index.php#akis" class="social-search" role="search">
                     <?php if ($topicSlug !== ''): ?><input type="hidden" name="konu" value="<?= e($topicSlug) ?>"><?php endif; ?>
                     <?php if ($feed !== 'kesfet'): ?><input type="hidden" name="akis" value="<?= e($feed) ?>"><?php endif; ?>
                     <label class="social-sr-only" for="social-q">Gönderi veya kullanıcı ara</label>
@@ -172,7 +189,7 @@ include __DIR__ . '/../header.php';
                         <?php include __DIR__ . '/_post-card.php'; ?>
                     <?php endforeach; ?>
                 </div>
-                <?= social_pagination_html('index.php', $baseParams, (int)$result['page'], (int)$result['pages']) ?>
+                <?= social_pagination_html('index.php', $baseParams, (int)$result['page'], (int)$result['pages'], 'akis') ?>
             <?php endif; ?>
         </div>
 
@@ -188,14 +205,63 @@ include __DIR__ . '/../header.php';
                         <span><b><?= (int)$socialProfile['follower_count'] ?></b> takipçi</span>
                         <span><b><?= number_format((int)$socialUser['dcoin_balance'], 0, ',', '.') ?></b> D-Coin</span>
                     </div>
-                    <a class="text-link" href="<?= e(social_profile_url($socialProfile)) ?>">Profilimi düzenle</a>
+                    <a class="text-link" href="<?= e(social_profile_url($socialProfile)) ?>#profil-duzenle">Profilimi düzenle</a>
                 </section>
             <?php else: ?>
                 <section class="social-panel social-join-panel">
                     <h2>DeviceGame hesabınla katıl</h2>
                     <p>Ayrı bir sosyal medya hesabı açmana gerek yok. Aynı hesabın mağaza ve D-Coin tarafında da çalışır.</p>
-                    <a class="btn btn-primary btn-full" href="../register.php">Hesap oluştur</a>
+                    <a class="btn btn-primary btn-full" href="../register.php?next=<?= rawurlencode('sosyal/index.php?hosgeldin=1') ?>">Hesap oluştur</a>
                     <a class="btn btn-ghost btn-full" href="<?= e(social_login_url('sosyal/index.php')) ?>">Giriş yap</a>
+                </section>
+            <?php endif; ?>
+
+            <section class="social-panel" id="yaklasan-etkinlikler">
+                <div class="social-panel-head">
+                    <h2>Yaklaşan etkinlikler</h2>
+                    <a href="etkinlikler.php">Tümü</a>
+                </div>
+                <?php if ($upcomingEvents): ?>
+                    <div class="social-event-links">
+                        <?php foreach ($upcomingEvents as $eventPost): ?>
+                            <a href="<?= e(social_post_url((int)$eventPost['id'])) ?>#etkinlik">
+                                <small><?= e(social_format_date((int)($eventPost['meta']['event_at'] ?? 0))) ?> · <?= e(social_time_until((int)($eventPost['meta']['event_at'] ?? 0))) ?></small>
+                                <strong><?= e($eventPost['title']) ?></strong>
+                                <span><?= (int)($eventPost['rsvp_count'] ?? 0) ?> katılımcı</span>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <p class="muted">Henüz yaklaşan etkinlik yok.</p>
+                    <?php if ($socialUser): ?><a class="text-link" href="yeni.php?konu=etkinlikler">İlk oyun gecesini planla</a><?php endif; ?>
+                <?php endif; ?>
+            </section>
+
+            <?php if ($weeklyHighlights): ?>
+                <section class="social-panel">
+                    <h2>Haftanın öne çıkanları</h2>
+                    <div class="social-highlight-links">
+                        <?php foreach ($weeklyHighlights as $highlightPost): ?>
+                            <a href="<?= e(social_post_url((int)$highlightPost['id'])) ?>">
+                                <strong><?= e($highlightPost['title']) ?></strong>
+                                <small><?= !empty($highlightPost['award']) ? '🏆 Editör Ödülü · ' : '' ?><?= (int)$highlightPost['gg_count'] ?> GG · <?= (int)$highlightPost['comment_count'] ?> yorum</small>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                </section>
+            <?php endif; ?>
+
+            <?php if ($suggestedProfiles): ?>
+                <section class="social-panel">
+                    <h2>Tanışılacak oyuncular</h2>
+                    <div class="social-user-list">
+                        <?php foreach ($suggestedProfiles as $suggestedProfile): ?>
+                            <a href="<?= e(social_profile_url($suggestedProfile)) ?>">
+                                <?= social_avatar_html($suggestedProfile) ?>
+                                <span><strong><?= e($suggestedProfile['display_name']) ?></strong><small>@<?= e($suggestedProfile['username']) ?><?= !empty($suggestedProfile['is_official']) ? ' · Resmî hesap' : '' ?></small></span>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
                 </section>
             <?php endif; ?>
 
@@ -205,7 +271,7 @@ include __DIR__ . '/../header.php';
                 <?php if ($trendingTags): ?>
                     <div class="social-tags is-large">
                         <?php foreach ($trendingTags as $tag => $count): ?>
-                            <a href="index.php?q=<?= rawurlencode('#' . $tag) ?>">#<?= e($tag) ?> <small><?= (int)$count ?></small></a>
+                            <a href="index.php?q=<?= rawurlencode('#' . $tag) ?>#akis">#<?= e($tag) ?> <small><?= (int)$count ?></small></a>
                         <?php endforeach; ?>
                     </div>
                 <?php else: ?>

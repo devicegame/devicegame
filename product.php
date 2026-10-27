@@ -7,6 +7,8 @@ $product = shop_product($slug);
 if (!$product) {
     http_response_code(404);
     $page_title = 'Ürün bulunamadı';
+    $page_canonical = false;
+    $page_robots = 'noindex,nofollow';
     $page_css = ['shop.css'];
     $body_class = 'shop-page';
     include 'header.php';
@@ -30,6 +32,12 @@ $dg_price = $dg_item ? (int)($dg_item['price_dcoin'] ?? 0) : 0;
 
 $page_title = $product['name'];
 $page_meta_desc = $product['desc'];
+$page_canonical = 'product.php?slug=' . rawurlencode((string)$product['slug']);
+$page_og_type = 'product';
+$page_og_title = (string)$product['name'];
+$page_og_desc = (string)$product['desc'];
+$page_og_image = !empty($product['image']) ? (string)$product['image'] : 'assets/img/devicegame-og.png';
+$page_og_image_alt = (string)$product['name'];
 $page_css = ['shop.css', 'assets/css/dcoin.css'];
 $body_class = 'shop-page has-bar dcoin-page';
 include 'header.php';
@@ -58,7 +66,7 @@ $wa_question = 'Merhaba, "' . $product['name'] . '" hakkında bilgi almak istiyo
         <span class="sep">/</span>
         <a href="shop.php">Mağaza</a>
         <span class="sep">/</span>
-        <a href="shop.php?kategori=<?php echo urlencode($product['category']); ?>"><?php echo e($category_label); ?></a>
+        <a href="shop.php?kategori=<?php echo urlencode($product['category']); ?>#katalog"><?php echo e($category_label); ?></a>
         <span class="sep">/</span>
         <span class="muted"><?php echo e($product['name']); ?></span>
     </nav>
@@ -170,7 +178,7 @@ $wa_question = 'Merhaba, "' . $product['name'] . '" hakkında bilgi almak istiyo
             <p class="eyebrow">Benzer ürünler</p>
             <h2>Bunlar da ilgini çekebilir.</h2>
         </div>
-        <a class="text-link" href="shop.php?kategori=<?php echo urlencode($product['category']); ?>">Tümünü gör</a>
+        <a class="text-link" href="shop.php?kategori=<?php echo urlencode($product['category']); ?>#katalog">Tümünü gör</a>
     </div>
     <div class="p-grid">
         <?php foreach ($related as $index => $related_product): ?>

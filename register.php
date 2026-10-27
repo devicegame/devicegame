@@ -2,12 +2,18 @@
 declare(strict_types=1);
 require_once __DIR__ . '/db.php';
 
-if (is_logged_in()) { header('Location: index.php'); exit; }
+$next = trim((string)($_GET['next'] ?? 'sosyal/index.php?hosgeldin=1'));
+if (!preg_match('#^(?:index\.php|shop\.php|product\.php|blog/(?:index|yazi)\.php|sosyal/(?:index|gonderi|profil|bildirimler|yeni|etkinlikler|kurallar)\.php)(?:\?[A-Za-z0-9_=&%+.,@:-]*)?(?:#[A-Za-z0-9_-]+)?$#', $next)) {
+    $next = 'sosyal/index.php?hosgeldin=1';
+}
+if (is_logged_in()) { header('Location: ' . $next); exit; }
 
 $err = flash_error_get();
 $flash = flash_get();
 
 $page_title = 'Kayıt ol';
+$page_canonical = false;
+$page_robots = 'noindex,nofollow';
 $page_css = ['shop.css', 'assets/css/dcoin.css'];
 $body_class = 'shop-page auth-page';
 include __DIR__ . '/header.php';
@@ -18,7 +24,7 @@ include __DIR__ . '/header.php';
         <div class="auth-card seq" style="--d:.05s">
             <p class="eyebrow">Hesabım</p>
             <h1 id="register-title">Aramıza katıl.</h1>
-            <p class="auth-intro">Hesabını oluştur; videoları izleyerek D-Coin kazan ve mağazadaki ürünlerde kullan.</p>
+            <p class="auth-intro">Hesabını oluştur; D-Coin kazan, mağazada harca ve aynı hesabınla DG Social topluluğuna katıl.</p>
 
             <?php if ($err): ?>
                 <div class="auth-alert is-error" role="alert"><?php echo e($err); ?></div>
@@ -31,6 +37,7 @@ include __DIR__ . '/header.php';
                 <?php echo csrf_field(); ?>
                 <input type="hidden" name="action" value="register">
                 <input type="hidden" name="_back" value="register.php">
+                <input type="hidden" name="next" value="<?php echo e($next); ?>">
 
                 <div class="field">
                     <label for="username">Kullanıcı adı</label>
@@ -58,7 +65,7 @@ include __DIR__ . '/header.php';
             </form>
 
             <div class="auth-foot">
-                <p>Zaten hesabın var mı? <a href="login.php">Giriş yap</a></p>
+                <p>Zaten hesabın var mı? <a href="login.php?next=<?php echo rawurlencode($next); ?>">Giriş yap</a></p>
             </div>
         </div>
 

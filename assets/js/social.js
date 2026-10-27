@@ -45,9 +45,47 @@
         }
 
         const mode = form.dataset.socialAjax;
-        if (button) {
+        if (button && mode !== 'poll') {
           button.classList.toggle('is-active', Boolean(payload.active));
           button.setAttribute('aria-pressed', payload.active ? 'true' : 'false');
+        }
+        if (mode === 'poll' && payload.poll) {
+          const panel = form.closest('[data-poll]');
+          const options = new Map((payload.poll.options || []).map((option) => [String(option.id), option]));
+          if (panel) {
+            panel.querySelectorAll('[data-poll-option]').forEach((optionElement) => {
+              const option = options.get(optionElement.dataset.pollOption || '');
+              if (!option) return;
+              const percent = Math.max(0, Math.min(100, Number(option.percent || 0)));
+              const fill = optionElement.querySelector('[data-poll-fill]');
+              const countElement = optionElement.querySelector('[data-poll-count]');
+              const percentElement = optionElement.querySelector('[data-poll-percent]');
+              const selected = String(payload.poll.selected || payload.selected || '') === String(option.id);
+              if (fill) fill.style.width = `${percent}%`;
+              if (countElement) countElement.textContent = String(option.votes || 0);
+              if (percentElement) percentElement.textContent = `%${percent}`;
+              optionElement.classList.toggle('is-selected', selected);
+              if (optionElement.tagName === 'BUTTON') optionElement.setAttribute('aria-pressed', selected ? 'true' : 'false');
+            });
+            const meta = panel.querySelector('[data-poll-meta]');
+            if (meta) {
+              let suffix = ' · süresiz';
+              if (payload.poll.closed) suffix = ' · kapandı';
+              else if (payload.poll.closes_at) {
+                const date = new Date(Number(payload.poll.closes_at) * 1000);
+                suffix = ` · ${date.toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })} tarihine kadar`;
+              }
+              meta.textContent = `${payload.poll.total_votes || 0} oy${suffix}`;
+            }
+          }
+        }
+        if (mode === 'rsvp' && button) {
+          const label = button.querySelector('[data-rsvp-label]');
+          if (label) label.textContent = payload.active ? 'Katılıyorsun ✓' : 'Katılıyorum';
+          const section = button.closest('[data-event]');
+          section?.querySelectorAll('[data-rsvp-count]').forEach((countElement) => {
+            countElement.textContent = String(payload.count || 0);
+          });
         }
         if (mode === 'gg' && button) {
           const count = button.querySelector('[data-gg-count]');
@@ -83,17 +121,51 @@
   });
 
   const topicSelect = document.querySelector('[data-social-topic-select]');
-  const lfgFields = document.querySelector('[data-lfg-fields]');
-  if (topicSelect && lfgFields) {
-    const syncLfg = () => {
-      const visible = topicSelect.value === 'oyun-arkadasi';
-      lfgFields.hidden = !visible;
-      lfgFields.querySelectorAll('input, select, textarea').forEach((input) => {
-        input.disabled = !visible;
+  const topicSections = document.querySelectorAll('[data-topic-fields]');
+  if (topicSelect && topicSections.length) {
+    const syncTopicFields = () => {
+      topicSections.forEach((section) => {
+        const visible = topicSelect.value === section.dataset.topicFields;
+        section.hidden = !visible;
+        section.querySelectorAll('input, select, textarea').forEach((input) => {
+          input.disabled = !visible || input.hasAttribute('data-locked-input');
+        });
       });
     };
-    topicSelect.addEventListener('change', syncLfg);
-    syncLfg();
+    topicSelect.addEventListener('change', syncTopicFields);
+    syncTopicFields();
+  }
+
+  const pollToggle = document.querySelector('[data-poll-toggle]');
+  const pollFields = document.querySelector('[data-poll-fields]');
+  if (pollToggle && pollFields) {
+    const syncPollFields = () => {
+      const visible = pollToggle.checked;
+      const locked = pollFields.dataset.pollLocked === '1';
+      pollFields.hidden = !visible;
+      pollFields.querySelectorAll('input, select, textarea').forEach((input) => {
+        input.disabled = !visible || (locked && input.tagName === 'SELECT');
+      });
+    };
+    pollToggle.addEventListener('change', syncPollFields);
+    syncPollFields();
+  }
+
+  const onboarding = document.querySelector('[data-onboarding]');
+  if (onboarding) {
+    const key = `dg-social-onboarding-dismissed-${onboarding.dataset.onboarding || 'guest'}`;
+    const forceShow = new URLSearchParams(window.location.search).get('hosgeldin') === '1';
+    try {
+      const dismissedAt = Number(window.localStorage.getItem(key) || 0);
+      if (!forceShow && dismissedAt && Date.now() - dismissedAt < 7 * 24 * 60 * 60 * 1000) {
+        onboarding.hidden = true;
+      }
+    } catch (_) {}
+    onboarding.querySelector('[data-onboarding-dismiss]')?.addEventListener('click', () => {
+      try { window.localStorage.setItem(key, String(Date.now())); } catch (_) {}
+      onboarding.hidden = true;
+      showToast('Başlangıç adımları bir hafta sonra tekrar gösterilecek.');
+    });
   }
 
   const commentForm = document.getElementById('comment-form');

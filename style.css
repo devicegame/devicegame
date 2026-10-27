@@ -24,7 +24,7 @@
 
 [hidden] { display: none !important; }
 
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; scroll-padding-top: 6.5rem; }
 
 body {
     background: var(--pine);

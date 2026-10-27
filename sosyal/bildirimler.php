@@ -9,6 +9,8 @@ $unread = social_unread_notification_count((int)$socialUser['id']);
 
 $page_title = 'Bildirimler — DG Social';
 $page_meta_desc = 'DG Social bildirimlerin: yorumlar, cevaplar, takipler ve bahsetmeler.';
+$page_canonical = false;
+$page_robots = 'noindex,nofollow';
 $page_css = ['shop.css', 'social.css'];
 $body_class = 'shop-page social-page';
 include __DIR__ . '/../header.php';
@@ -28,7 +30,7 @@ include __DIR__ . '/../header.php';
         <form method="post" action="aksiyon.php" class="social-notifications-tools">
             <?= csrf_field() ?>
             <input type="hidden" name="islem" value="bildirim_okundu">
-            <input type="hidden" name="return" value="bildirimler.php">
+            <input type="hidden" name="return" value="bildirimler.php#bildirim-listesi">
             <button class="btn btn-ghost social-small-btn" type="submit">Tümünü okundu işaretle</button>
         </form>
     <?php endif; ?>
@@ -37,10 +39,10 @@ include __DIR__ . '/../header.php';
         <div class="social-empty">
             <h2>Henüz bildirimin yok.</h2>
             <p>Bir gönderine yorum yapıldığında, cevabın cevaplandığında veya biri seni takip ettiğinde burada görünecek.</p>
-            <a class="btn btn-primary" href="index.php">Akışa git</a>
+            <a class="btn btn-primary" href="index.php#akis">Akışa git</a>
         </div>
     <?php else: ?>
-        <div class="social-notification-list">
+        <div class="social-notification-list" id="bildirim-listesi">
             <?php foreach ($notifications as $notification): ?>
                 <?php
                 $actorId = (int)($notification['actor_id'] ?? 0);
@@ -50,6 +52,8 @@ include __DIR__ . '/../header.php';
                     'reply' => '↩',
                     'follow' => '👥',
                     'mention' => '@',
+                    'event_rsvp' => '🗓',
+                    'award' => '🏆',
                     default => '🔔',
                 };
                 ?>

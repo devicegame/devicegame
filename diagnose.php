@@ -49,7 +49,7 @@ function dg_diag_bad_htaccess_directives(string $content): array {
 }
 ?>
 <!doctype html>
-<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
 <title>Teşhis — Device Game (Veritabansız)</title>
 <style>
 body{background:#0A1A15;color:#E8EBE4;font-family:system-ui,-apple-system,sans-serif;padding:24px;line-height:1.65;max-width:920px;margin:0 auto}
@@ -97,7 +97,9 @@ $required = [
     'partials/dcoin-storefront.php', 'partials/dcoin-purchase-modal.php', 'storage/products.json', 'storage/blog-categories.json',
     'social.css', 'sosyal/_common.php', 'sosyal/_post-card.php', 'sosyal/index.php', 'sosyal/gonderi.php',
     'sosyal/yeni.php', 'sosyal/profil.php', 'sosyal/bildirimler.php', 'sosyal/aksiyon.php',
-    'assets/css/devicegame.css', 'assets/css/dcoin.css', 'assets/js/dcoin.js', 'assets/js/social.js',
+    'sosyal/etkinlikler.php', 'sosyal/kurallar.php', 'sitemap.php', 'robots.txt',
+    'assets/img/devicegame-og.png',
+    'assets/css/devicegame.css', 'assets/css/dcoin.css', 'assets/js/dcoin.js', 'assets/js/social.js', 'assets/js/scroll-restore.js',
     'admin/index.php', 'admin/ads.php', 'admin/users.php',
     'admin/store.php', 'admin/blog.php', 'admin/social.php', 'admin/logs.php', 'api/watch_start.php', 'api/watch_complete.php', 'api/purchase.php',
     'storage/.htaccess', 'storage/dg/.htaccess', 'uploads/.htaccess', 'uploads/index.html',
@@ -228,16 +230,26 @@ if (!is_readable($socialLib)) {
         social_ensure_storage();
         $socialStats = social_stats(true);
         $socialStorage = social_storage_stats();
-        echo '<pre>'
-            . dg_diag_line(is_dir(social_storage_dir()) && is_writable(social_storage_dir()), 'storage/social/', is_writable(social_storage_dir()) ? 'hazır ve yazılabilir' : 'YAZILAMIYOR')
-            . dg_diag_line(is_dir(social_upload_dir()) && is_writable(social_upload_dir()), 'uploads/social/', is_writable(social_upload_dir()) ? 'hazır ve yazılabilir' : 'YAZILAMIYOR')
-            . 'konular: ' . (int)$socialStats['topics'] . "\n"
+        $socialHealth = social_health_report();
+        echo '<pre>';
+        foreach ((array)$socialHealth['checks'] as $check) {
+            echo dg_diag_line(!empty($check['ok']), (string)$check['label'], (string)$check['detail']);
+        }
+        echo 'konular: ' . (int)$socialStats['topics'] . "\n"
             . 'yayındaki gönderiler: ' . (int)$socialStats['posts'] . "\n"
+            . 'anket / yaklaşan etkinlik / ödül: ' . (int)($socialStats['polls'] ?? 0) . ' / ' . (int)($socialStats['upcoming_events'] ?? 0) . ' / ' . (int)($socialStats['awards'] ?? 0) . "\n"
             . 'onay bekleyen gönderi/yorum: ' . (int)$socialStats['pending_posts'] . ' / ' . (int)$socialStats['pending_comments'] . "\n"
             . 'açık şikâyetler: ' . (int)$socialStats['open_reports'] . "\n"
+            . 'gönderi dosyası / bozuk JSON: ' . (int)$socialHealth['post_files'] . ' / ' . (int)$socialHealth['invalid_posts'] . "\n"
+            . 'eksik / sahipsiz görsel: ' . (int)$socialHealth['missing_images'] . ' / ' . (int)$socialHealth['orphan_images'] . "\n"
             . 'dosyalar: ' . (int)$socialStorage['files'] . ' (' . number_format(((int)$socialStorage['bytes']) / 1024, 1, ',', '.') . " KB)\n"
+            . 'son yedek işareti: ' . ((int)$socialHealth['last_backup_at'] > 0 ? date('d.m.Y H:i', (int)$socialHealth['last_backup_at']) : 'yok') . "\n"
             . '</pre>';
-        $ok('DG Social depolaması hazır: <a href="sosyal/index.php">sosyal/index.php</a> açılmalı.');
+        if (!empty($socialHealth['healthy'])) {
+            $ok('DG Social depolamasında kritik sorun yok: <a href="sosyal/index.php">sosyal/index.php</a> açılmalı.');
+        } else {
+            $warn('DG Social sağlık raporunda kritik kontrol(ler) başarısız. Yönetimdeki <b>Sosyal → Bakım</b> ekranından ayrıntılara bakın.');
+        }
     } catch (Throwable $e) {
         $bad('DG Social depolaması başlatılamadı: ' . h($e->getMessage()));
         echo '<div class="card"><code>storage/social/</code> ve <code>uploads/social/</code> izinlerini 755/775 yapın. Bozuk bir JSON varsa dosyayı silmeden önce yedekleyin; yönetimdeki <b>Sosyal → Bakım</b> ekranından indeksler yeniden oluşturulabilir.</div>';

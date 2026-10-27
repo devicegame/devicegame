@@ -49,6 +49,8 @@ if (!$post || !social_post_visible($post, $socialUser, $blockedIds)) {
     http_response_code(404);
     $page_title = 'Gönderi bulunamadı — DG Social';
     $page_meta_desc = 'Aradığın DG Social gönderisi bulunamadı veya yayından kaldırıldı.';
+    $page_canonical = false;
+    $page_robots = 'noindex,nofollow';
     $page_css = ['shop.css', 'social.css'];
     $body_class = 'shop-page social-page';
     include __DIR__ . '/../header.php';
@@ -84,7 +86,7 @@ $authorProfile = $profiles[(int)$post['user_id']] ?? [
 ];
 $authorUser = (int)$post['user_id'] > 0 && function_exists('dg_find_user_by_id') ? dg_find_user_by_id((int)$post['user_id']) : null;
 $socialStates = social_post_states([$postId], $socialUser);
-$postState = $socialStates[$postId] ?? ['gg' => false, 'saved' => false];
+$postState = $socialStates[$postId] ?? ['gg' => false, 'saved' => false, 'poll_vote' => '', 'rsvp' => false];
 $isAuthor = $socialUser && (int)$socialUser['id'] === (int)$post['user_id'];
 $isAdmin = !empty($socialUser['is_admin']);
 $isFollowingAuthor = false;
@@ -154,7 +156,7 @@ function social_render_comment(array $comment, bool $isReply = false): void
                     <input type="hidden" name="islem" value="yorum_sil">
                     <input type="hidden" name="post_id" value="<?= (int)$post['id'] ?>">
                     <input type="hidden" name="comment_id" value="<?= $commentId ?>">
-                    <input type="hidden" name="return" value="<?= e($returnUrl) ?>">
+                    <input type="hidden" name="return" value="<?= e($returnUrl . '#yorumlar') ?>">
                     <button class="social-text-button is-danger" type="submit">Sil</button>
                 </form>
             <?php endif; ?>
@@ -164,7 +166,7 @@ function social_render_comment(array $comment, bool $isReply = false): void
                     <input type="hidden" name="islem" value="yorum_onayla">
                     <input type="hidden" name="post_id" value="<?= (int)$post['id'] ?>">
                     <input type="hidden" name="comment_id" value="<?= $commentId ?>">
-                    <input type="hidden" name="return" value="<?= e($returnUrl) ?>">
+                    <input type="hidden" name="return" value="<?= e($returnUrl . '#yorum-' . $commentId) ?>">
                     <button class="social-text-button" type="submit">Yayınla</button>
                 </form>
             <?php endif; ?>
@@ -174,12 +176,12 @@ function social_render_comment(array $comment, bool $isReply = false): void
                     <input type="hidden" name="islem" value="yorum_gizle">
                     <input type="hidden" name="post_id" value="<?= (int)$post['id'] ?>">
                     <input type="hidden" name="comment_id" value="<?= $commentId ?>">
-                    <input type="hidden" name="return" value="<?= e($returnUrl) ?>">
+                    <input type="hidden" name="return" value="<?= e($returnUrl . '#yorum-' . $commentId) ?>">
                     <button class="social-text-button" type="submit">Gizle</button>
                 </form>
             <?php endif; ?>
             <?php if ($socialUser && !$isOwn): ?>
-                <?= social_detail_report_form('comment', $commentId, (int)$post['id'], $returnUrl) ?>
+                <?= social_detail_report_form('comment', $commentId, (int)$post['id'], $returnUrl . '#yorum-' . $commentId) ?>
             <?php endif; ?>
         </div>
 
@@ -194,6 +196,20 @@ function social_render_comment(array $comment, bool $isReply = false): void
 
 $page_title = $post['title'] . ' — DG Social';
 $page_meta_desc = social_excerpt((string)$post['body'], 155);
+$isPublishedPost = ($post['status'] ?? '') === 'published';
+$page_canonical = $isPublishedPost ? 'sosyal/gonderi.php?id=' . $postId : false;
+$page_robots = $isPublishedPost ? '' : 'noindex,nofollow';
+$page_og_type = 'article';
+$page_og_title = (string)$post['title'];
+$page_og_desc = $page_meta_desc;
+$page_og_image = !empty($post['image']) ? (string)$post['image'] : 'assets/img/devicegame-og.png';
+$page_og_image_alt = (string)$post['title'];
+$page_published_time = (int)$post['created_at'];
+$page_modified_time = max((int)$post['updated_at'], (int)($post['edited_at'] ?? 0), (int)$post['last_activity_at']);
+$page_article_author = function_exists('dg_absolute_url') ? dg_absolute_url('sosyal/' . social_profile_url($authorProfile)) : '';
+$page_article_section = $topic ? (string)$topic['name'] : 'DG Social';
+$page_article_tags = (array)$post['tags'];
+$shareUrl = function_exists('dg_absolute_url') ? dg_absolute_url('sosyal/gonderi.php?id=' . $postId) : $returnUrl;
 $page_css = ['shop.css', 'social.css'];
 $body_class = 'shop-page social-page';
 include __DIR__ . '/../header.php';
@@ -202,7 +218,7 @@ include __DIR__ . '/../header.php';
 <section class="social-shell">
     <nav class="social-breadcrumb" aria-label="Konum">
         <a href="index.php">DG Social</a><span>/</span>
-        <?php if ($topic): ?><a href="index.php?konu=<?= rawurlencode((string)$topic['slug']) ?>"><?= e($topic['name']) ?></a><span>/</span><?php endif; ?>
+        <?php if ($topic): ?><a href="<?= e(social_feed_url(['konu' => (string)$topic['slug']])) ?>"><?= e($topic['name']) ?></a><span>/</span><?php endif; ?>
         <span aria-current="page"><?= e($post['title']) ?></span>
     </nav>
 
@@ -216,14 +232,17 @@ include __DIR__ . '/../header.php';
     <?php endif; ?>
 
     <div class="social-detail-layout">
-        <article class="social-detail-card">
+        <article id="gonderi-detay" class="social-detail-card">
             <div class="social-post-top">
                 <a class="social-author" href="<?= e(social_profile_url($authorProfile)) ?>">
                     <?= social_avatar_html($authorProfile, 'is-large') ?>
                     <span><strong><?= e($authorProfile['display_name']) ?></strong><small>@<?= e($authorProfile['username']) ?> · <?= e(social_format_date((int)$post['created_at'])) ?></small></span>
                 </a>
                 <div class="social-post-badges">
-                    <?php if ($topic): ?><a class="social-topic-badge" href="index.php?konu=<?= rawurlencode((string)$topic['slug']) ?>"><?= e($topic['icon']) ?> <?= e($topic['name']) ?></a><?php endif; ?>
+                    <?php if ($topic): ?><a class="social-topic-badge" href="<?= e(social_feed_url(['konu' => (string)$topic['slug']])) ?>"><?= e($topic['icon']) ?> <?= e($topic['name']) ?></a><?php endif; ?>
+                    <?= social_award_badge_html($post) ?>
+                    <?php if (!empty($post['poll'])): ?><span class="social-mini-badge">Anket</span><?php endif; ?>
+                    <?php if (social_is_event_post($post)): ?><span class="social-mini-badge">Etkinlik</span><?php endif; ?>
                     <?php if (!empty($post['pinned'])): ?><span class="social-mini-badge">Sabit</span><?php endif; ?>
                     <?php if (!empty($post['locked'])): ?><span class="social-mini-badge">Kilitli</span><?php endif; ?>
                 </div>
@@ -235,17 +254,29 @@ include __DIR__ . '/../header.php';
             <?php endif; ?>
             <div class="social-rich-text is-post"><?= social_render_text((string)$post['body']) ?></div>
 
-            <?php if (!empty($post['meta']) && array_filter((array)$post['meta'])): ?>
+            <?= social_event_html($post, $socialUser, $postState, $returnUrl . '#etkinlik', true) ?>
+            <?= social_poll_html($post, $socialUser, $postState, $returnUrl . '#gonderi-detay') ?>
+
+            <?php if (!empty($post['award'])): ?>
+                <section class="social-award-callout" aria-label="Editör Ödülü">
+                    <strong>🏆 Editör Ödülü</strong>
+                    <p><?= e(trim((string)($post['award']['reason'] ?? '')) !== '' ? (string)$post['award']['reason'] : 'Bu içerik topluluğa katkısı için seçildi.') ?></p>
+                    <span>Bu içerik +<?= number_format((int)$post['award']['amount'], 0, ',', '.') ?> D-Coin ile ödüllendirildi<?= (int)($post['award']['awarded_at'] ?? 0) > 0 ? ' · ' . e(social_format_date((int)$post['award']['awarded_at'])) : '' ?>.</span>
+                </section>
+            <?php endif; ?>
+
+            <?php if (!empty($post['meta']) && !social_is_event_post($post) && array_filter((array)$post['meta'], static fn($value): bool => trim((string)$value) !== '')): ?>
                 <div class="social-lfg-summary">
                     <?php foreach ((array)$post['meta'] as $key => $value): ?>
-                        <?php if (trim((string)$value) !== ''): ?><div><span><?= e(social_lfg_label((string)$key)) ?></span><strong><?= e($value) ?></strong></div><?php endif; ?>
+                        <?php $labelValue = social_meta_value_label((string)$key, $value); ?>
+                        <?php if ($labelValue !== ''): ?><div><span><?= e(social_lfg_label((string)$key)) ?></span><strong><?= e($labelValue) ?></strong></div><?php endif; ?>
                     <?php endforeach; ?>
                 </div>
             <?php endif; ?>
 
             <?php if (!empty($post['tags'])): ?>
                 <div class="social-tags is-large">
-                    <?php foreach ((array)$post['tags'] as $tag): ?><a href="index.php?q=<?= rawurlencode('#' . (string)$tag) ?>">#<?= e($tag) ?></a><?php endforeach; ?>
+                    <?php foreach ((array)$post['tags'] as $tag): ?><a href="index.php?q=<?= rawurlencode('#' . (string)$tag) ?>#akis">#<?= e($tag) ?></a><?php endforeach; ?>
                 </div>
             <?php endif; ?>
             <?php if (!empty($post['edited_at'])): ?><p class="social-edited">Son düzenleme: <?= e(social_format_date((int)$post['edited_at'])) ?></p><?php endif; ?>
@@ -270,6 +301,10 @@ include __DIR__ . '/../header.php';
                     <a class="social-action" href="<?= e(social_login_url('sosyal/' . $returnUrl)) ?>">GG <?= (int)$post['gg_count'] ?></a>
                 <?php endif; ?>
                 <button type="button" class="social-action" data-copy-link>Bağlantıyı kopyala</button>
+                <?php if ($isPublishedPost): ?>
+                    <a class="social-action" href="https://twitter.com/intent/tweet?text=<?= rawurlencode((string)$post['title']) ?>&url=<?= rawurlencode($shareUrl) ?>" target="_blank" rel="noopener">X’te paylaş</a>
+                    <a class="social-action" href="https://wa.me/?text=<?= rawurlencode((string)$post['title'] . ' — ' . $shareUrl) ?>" target="_blank" rel="noopener">WhatsApp</a>
+                <?php endif; ?>
                 <?php if ($isAuthor || $isAdmin): ?>
                     <a class="social-action" href="yeni.php?duzenle=<?= $postId ?>">Düzenle</a>
                     <form method="post" action="aksiyon.php" data-confirm="Bu gönderi silinsin mi?">
@@ -294,6 +329,25 @@ include __DIR__ . '/../header.php';
                     <?php endif; ?>
                     <form method="post" action="aksiyon.php"><?= csrf_field() ?><input type="hidden" name="islem" value="gonderi_sabitle"><input type="hidden" name="post_id" value="<?= $postId ?>"><input type="hidden" name="return" value="<?= e($returnUrl) ?>"><button type="submit"><?= !empty($post['pinned']) ? 'Sabitten kaldır' : 'Sabitle' ?></button></form>
                     <form method="post" action="aksiyon.php"><?= csrf_field() ?><input type="hidden" name="islem" value="gonderi_kilitle"><input type="hidden" name="post_id" value="<?= $postId ?>"><input type="hidden" name="return" value="<?= e($returnUrl) ?>"><button type="submit"><?= !empty($post['locked']) ? 'Kilidi aç' : 'Kilitle' ?></button></form>
+                    <?php if ($isPublishedPost && (int)$post['user_id'] > 0 && !$isAuthor): ?>
+                        <?php if (empty($post['award'])): ?>
+                            <details class="social-award-form">
+                                <summary>🏆 Editör Ödülü ver</summary>
+                                <form method="post" action="aksiyon.php" data-confirm="Bu D-Coin ödülü gönderi sahibine eklensin mi?">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="islem" value="odul_ver">
+                                    <input type="hidden" name="post_id" value="<?= $postId ?>">
+                                    <input type="hidden" name="return" value="<?= e($returnUrl . '#gonderi-detay') ?>">
+                                    <label>D-Coin miktarı<input type="number" name="amount" min="5" max="1000" step="5" value="50" required></label>
+                                    <label>Gerekçe<input type="text" name="reason" maxlength="180" required placeholder="Örn. Kapsamlı ve güncel bir rehber"></label>
+                                    <button type="submit">Ödülü gönder</button>
+                                    <p>Her gönderiye bir kez, 5–1000 D-Coin arasında ödül verilebilir.</p>
+                                </form>
+                            </details>
+                        <?php else: ?>
+                            <span class="social-admin-award">🏆 +<?= number_format((int)$post['award']['amount'], 0, ',', '.') ?> D-Coin ödülü verildi.</span>
+                        <?php endif; ?>
+                    <?php endif; ?>
                 </div>
             <?php endif; ?>
 

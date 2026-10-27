@@ -135,9 +135,11 @@ $dg_config = [
 ];
 
 $social_latest = [];
+$social_events_home = [];
 $social_topics_home = [];
 try {
     $social_latest = social_list_posts(['sort' => 'activity', 'per_page' => 3], $user)['items'] ?? [];
+    $social_events_home = social_upcoming_events($user, 3);
     $social_topics_home = array_column(social_topics(), 'name', 'slug');
 } catch (Throwable $e) {
     error_log('[index social latest] ' . $e->getMessage());
@@ -148,6 +150,9 @@ $flash_err = flash_error_get();
 
 // SEO ve üst bilgi eski ana sayfadaki gibi config.php + header.php'den gelir.
 $page_title = '';
+$page_canonical = '';
+$page_og_type = 'website';
+$page_og_title = 'Device Game | Oyun dünyasının anahtarı.';
 $page_css = ['shop.css', 'social.css', 'assets/css/dcoin.css'];
 $body_class = 'shop-page home-page dcoin-page';
 include __DIR__ . '/header.php';
@@ -483,8 +488,8 @@ include __DIR__ . '/header.php';
                         <h3>Bakiyen seni bekliyor.</h3>
                         <p class="dcoin-account-text">Günde <?php echo $daily_limit; ?> videoya kadar izleyip D-Coin kazanın. Ödüller yalnızca videoyu sonuna kadar izleyen hesaplara verilir.</p>
                         <div style="display:flex;gap:.65rem;flex-wrap:wrap">
-                            <a href="login.php?next=index.php" class="btn btn-primary">Giriş yap</a>
-                            <a href="register.php" class="btn btn-ghost">Kayıt ol</a>
+                            <a href="login.php?next=index.php%23dcoin" class="btn btn-primary">Giriş yap</a>
+                            <a href="register.php?next=index.php%23dcoin" class="btn btn-ghost">Kayıt ol</a>
                         </div>
                     <?php endif; ?>
                 </div>
@@ -530,8 +535,8 @@ include __DIR__ . '/header.php';
                 <p class="eyebrow">DG Social</p>
                 <h2 id="community-title">Toplulukta neler oluyor?</h2>
             </div>
-            <p>Herkes okuyabilir; gönderi ve yorumlar mevcut Device Game hesabınla. Oyun önerileri, rehberler, yardım ve oyun arkadaşı ilanları tek akışta.</p>
-            <a href="sosyal/index.php" class="btn btn-primary">Sosyal akışa git</a>
+            <p>Herkes okuyabilir; gönderi ve yorumlar mevcut Device Game hesabınla. Oyun önerileri, rehberler, anketler, haftalık etkinlikler ve oyun arkadaşı ilanları tek akışta.</p>
+            <a href="sosyal/index.php#akis" class="btn btn-primary">Sosyal akışa git</a>
         </div>
 
         <?php if ($social_latest): ?>
@@ -541,15 +546,34 @@ include __DIR__ . '/header.php';
                         <small><?php echo e($social_topics_home[(string)$social_post_home['topic_slug']] ?? (string)$social_post_home['topic_slug']); ?> · @<?php echo e($social_post_home['author_username']); ?></small>
                         <h3><?php echo e($social_post_home['title']); ?></h3>
                         <p><?php echo e($social_post_home['excerpt']); ?></p>
-                        <p><strong>GG <?php echo (int)$social_post_home['gg_count']; ?></strong> · <?php echo (int)$social_post_home['comment_count']; ?> yorum</p>
+                        <p>
+                            <strong>GG <?php echo (int)$social_post_home['gg_count']; ?></strong> · <?php echo (int)$social_post_home['comment_count']; ?> yorum
+                            <?php if (!empty($social_post_home['poll'])): ?> · 📊 <?php echo (int)($social_post_home['poll']['total_votes'] ?? 0); ?> oy<?php endif; ?>
+                            <?php if (!empty($social_post_home['award'])): ?> · 🏆 +<?php echo number_format((int)$social_post_home['award']['amount'], 0, ',', '.'); ?> D-Coin<?php endif; ?>
+                            <?php if (social_is_event_post($social_post_home)): ?> · 🗓 <?php echo (int)($social_post_home['rsvp_count'] ?? 0); ?> katılımcı<?php endif; ?>
+                        </p>
                     </a>
                 <?php endforeach; ?>
             </div>
         <?php else: ?>
             <div class="social-home-grid">
-                <a class="social-home-card" href="sosyal/index.php?konu=oyun-arkadasi"><small>Oyun Arkadaşı (LFG)</small><h3>Ekibini kur</h3><p>Oyun, platform, rank ve saat bilgisiyle sana uyan oyuncuları bul.</p></a>
-                <a class="social-home-card" href="sosyal/index.php?konu=rehberler"><small>Rehberler &amp; Taktikler</small><h3>Bilgini paylaş</h3><p>Oyuncu rehberleri, ipuçları ve kurulum çözümleri toplulukta.</p></a>
-                <a class="social-home-card" href="sosyal/index.php?konu=duyurular"><small>Duyurular</small><h3>Device Game’den haberler</h3><p>Resmî duyuruları ve mağaza fırsatlarını tek yerden takip et.</p></a>
+                <a class="social-home-card" href="sosyal/index.php?konu=oyun-arkadasi#akis"><small>Oyun Arkadaşı (LFG)</small><h3>Ekibini kur</h3><p>Oyun, platform, rank ve saat bilgisiyle sana uyan oyuncuları bul.</p></a>
+                <a class="social-home-card" href="sosyal/index.php?konu=rehberler#akis"><small>Rehberler &amp; Taktikler</small><h3>Bilgini paylaş</h3><p>Oyuncu rehberleri, ipuçları ve kurulum çözümleri toplulukta.</p></a>
+                <a class="social-home-card" href="sosyal/etkinlikler.php"><small>Etkinlikler</small><h3>Oyun gecesi planla</h3><p>Tarih ve buluşma yerini belirle, topluluğun katılımını tek yerden takip et.</p></a>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($social_events_home): ?>
+            <p class="eyebrow social-home-events-title">Yaklaşan etkinlikler</p>
+            <div class="social-home-grid">
+                <?php foreach ($social_events_home as $social_event_home): ?>
+                    <a class="social-home-card" href="sosyal/gonderi.php?id=<?php echo (int)$social_event_home['id']; ?>#etkinlik">
+                        <small>🗓 <?php echo e(social_format_date((int)($social_event_home['meta']['event_at'] ?? 0))); ?> · <?php echo e(social_time_until((int)($social_event_home['meta']['event_at'] ?? 0))); ?></small>
+                        <h3><?php echo e($social_event_home['title']); ?></h3>
+                        <p><?php echo e($social_event_home['excerpt']); ?></p>
+                        <p><strong><?php echo (int)($social_event_home['rsvp_count'] ?? 0); ?> katılımcı</strong><?php echo !empty($social_event_home['meta']['event_place']) ? ' · ' . e($social_event_home['meta']['event_place']) : ''; ?></p>
+                    </a>
+                <?php endforeach; ?>
             </div>
         <?php endif; ?>
     </div>

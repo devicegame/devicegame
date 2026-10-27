@@ -1,5 +1,8 @@
 <?php
 $page_title = 'Vizyonumuz';
+$page_canonical = 'about.php';
+$page_og_type = 'website';
+$page_og_title = 'Vizyonumuz';
 include 'header.php';
 ?>
 

@@ -26,6 +26,15 @@ $dg_login_query = http_build_query($dg_login_params, '', '&', PHP_QUERY_RFC3986)
 $dg_login_next = 'shop.php' . ($dg_login_query !== '' ? '?' . $dg_login_query : '');
 $dg_context = dg_storefront_context($all_products, $dg_login_next);
 
+$page_canonical = false;
+if ($query === '' && $sort === '') {
+    $page_canonical = 'shop.php' . ($active_category !== '' ? '?kategori=' . rawurlencode($active_category) : '');
+}
+$page_robots = ($query !== '' || $sort !== '') ? 'noindex,follow' : '';
+$page_og_type = 'website';
+$page_og_title = 'Mağaza';
+$page_og_desc = $page_meta_desc;
+
 include 'header.php';
 
 $all_counts = [];
