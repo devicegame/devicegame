@@ -17,9 +17,9 @@ include __DIR__ . '/../header.php';
 
 <section class="social-shell is-narrow">
     <header class="social-page-head">
-        <p class="eyebrow">DG Social · Beta</p>
+        <p class="eyebrow">DG Social · Forum</p>
         <h1>Topluluk kuralları.</h1>
-        <p class="muted">DG Social herkesin okuyabildiği, DeviceGame hesabı olanların yazabildiği bir oyuncu topluluğudur. Bu sayfadaki kurallar gönderiler, yorumlar, profiller, görseller, anketler ve etkinlikler için geçerlidir.</p>
+        <p class="muted">DG Social herkesin okuyabildiği, DeviceGame hesabı olanların yazabildiği bir oyuncu topluluğudur. Bu sayfadaki kurallar forum konuları, yorumlar, canlı sohbet, özel mesajlar, profiller, görseller, anketler ve etkinlikler için geçerlidir.</p>
         <p class="muted"><strong>Son güncelleme:</strong> 27 Ekim 2026</p>
     </header>
 
@@ -32,6 +32,7 @@ include __DIR__ . '/../header.php';
         <a href="#icerik-kalitesi">İçerik kalitesi</a>
         <a href="#spam-ticaret">Spam ve ticaret</a>
         <a href="#etkinlik-anket">Etkinlik ve anketler</a>
+        <a href="#ozel-sohbet">Özel mesaj ve canlı sohbet</a>
         <a href="#dcoin-oduller">D-Coin ödülleri</a>
         <a href="#moderasyon">Moderasyon</a>
         <a href="#itiraz">İtiraz</a>
@@ -62,11 +63,13 @@ include __DIR__ . '/../header.php';
         <section id="icerik-kalitesi">
             <h2>3. İçerik kalitesi ve telif</h2>
             <ul>
-                <li>Gönderini doğru konuda, açıklayıcı bir başlıkla ve mümkünse ilgili etiketlerle aç.</li>
+                <li>Gönderini doğru kategoride, açıklayıcı bir başlık ve konu türüyle (soru, rehber, ekip gibi) aç; mümkünse ilgili etiketleri kullan.</li>
                 <li>Aynı gönderiyi farklı başlıklarla tekrarlama; mevcut tartışmaya yeni bilgiyle katıl.</li>
                 <li>Spoiler içeren başlık kullanma; içerikte gerekiyorsa açık bir spoiler uyarısı ver.</li>
                 <li>Yalnızca kullanma hakkına sahip olduğun metin ve görselleri yükle. Kısa alıntılarda kaynağı belirt.</li>
                 <li>Yanıltıcı haber, sahte indirim, doğrulanmamış “kesin bilgi” veya başka birinin içeriğini kendi çalışman gibi sunma.</li>
+                <li>Soru konunda işe yarayan cevabı “kabul edilen çözüm” seç; alıntı yaparken kişinin sözlerinin anlamını değiştirme.</li>
+                <li>Profil fotoğrafın, görünen adın ve forum imzan da bu kurallara uyar. İmzanda aşırı tanıtım, yanıltıcı resmî sıfat veya zararlı bağlantı kullanma.</li>
             </ul>
         </section>
 
@@ -91,6 +94,18 @@ include __DIR__ . '/../header.php';
             </ul>
         </section>
 
+        <section id="ozel-sohbet">
+            <h2>5A. Özel mesajlar ve canlı sohbet</h2>
+            <ul>
+                <li>İstenmeyen özel mesaj, toplu tanıtım, ısrarlı ekip daveti ve mesaj isteği üzerinden dolandırıcılık yasaktır.</li>
+                <li>DeviceGame ekibi özel mesaj veya canlı sohbet üzerinden şifreni, ürün anahtarını, ödeme bilgini ya da tek kullanımlık kodunu istemez.</li>
+                <li>Özel mesajların ekran görüntülerini kişisel bilgileri açık edecek şekilde herkese açık paylaşma; sorun yaşarsan mesajdaki şikâyet aracını kullan.</li>
+                <li>Şikâyet edilen bir özel mesajda moderatör, bütün konuşma geçmişini değil yalnızca ilgili mesajın çevresindeki sınırlı bağlamı inceleyebilir.</li>
+                <li>Canlı sohbette flood, tekrar eden satırlar, aşırı etiketleme ve başka kanala ait uzun tartışmalar yasaktır. Uzun konuları forumda aç.</li>
+                <li>Bir kullanıcı seni engellediğinde başka hesap veya başka kanaldan onu rahatsız etmeye çalışma.</li>
+            </ul>
+        </section>
+
         <section id="dcoin-oduller">
             <h2>6. D-Coin ve Editör Ödülü</h2>
             <ul>
@@ -106,8 +121,8 @@ include __DIR__ . '/../header.php';
             <p>Yeni veya düşük güven seviyesindeki hesapların ilk gönderi ve yorumları spam’i önlemek için yayın öncesi onaya gidebilir. Onaylanan içerikler güven oluşurken daha hızlı yayınlanır.</p>
             <ul>
                 <li>Sorunlu bir içerikte tartışmayı büyütmek yerine <strong>Şikâyet et</strong> düğmesini kullan.</li>
-                <li>İhlale göre içeriğin düzenlenmesi istenebilir; içerik gizlenebilir, silinebilir veya konu yorumlara kilitlenebilir.</li>
-                <li>Tekrar eden ya da ciddi ihlallerde güven seviyesi düşürülebilir, hesap geçici veya kalıcı olarak kısıtlanabilir.</li>
+                <li>İhlale göre içeriğin düzenlenmesi istenebilir; içerik gizlenebilir, silinebilir, başka kategoriye taşınabilir veya konu yorumlara kilitlenebilir.</li>
+                <li>Kullanıcıya önce uyarı verilebilir; tekrar eden veya ciddi ihlallerde geçici susturma uygulanabilir, güven seviyesi düşürülebilir ve hesap kalıcı olarak kısıtlanabilir.</li>
                 <li>Engelleme özelliği, istemediğin kullanıcının içeriklerini görmemek için kullanılabilir; bu işlem moderasyon şikâyetinin yerine geçmez.</li>
             </ul>
         </section>
@@ -119,10 +134,11 @@ include __DIR__ . '/../header.php';
 
         <section id="degisiklik">
             <h2>9. Değişiklikler</h2>
-            <p>Beta döneminde topluluk ihtiyaçlarına göre bu kurallar güncellenebilir. Önemli değişiklikler DG Social duyurularında paylaşılır; bu sayfadaki tarih güncellenir.</p>
+            <p>Topluluk ihtiyaçlarına göre bu kurallar güncellenebilir. Önemli değişiklikler DG Social duyurularında paylaşılır; bu sayfadaki tarih güncellenir.</p>
             <div class="social-rules-actions">
-                <a class="btn btn-primary" href="index.php#akis">Akışa dön</a>
-                <a class="btn btn-ghost" href="etkinlikler.php">Etkinliklere bak</a>
+                <a class="btn btn-primary" href="index.php">Akışa dön</a>
+                <a class="btn btn-ghost" href="sohbet.php">Canlı sohbete git</a>
+                <a class="btn btn-ghost" href="mesajlar.php">Özel mesajlarım</a>
             </div>
         </section>
     </article>

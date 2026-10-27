@@ -56,6 +56,14 @@ $meta_time = static function ($value): string {
 };
 $page_published_time = $meta_time($page_published_time ?? null);
 $page_modified_time = $meta_time($page_modified_time ?? null);
+$page_rss_path = '';
+if (isset($page_rss_url) && is_string($page_rss_url) && trim($page_rss_url) !== '') {
+    $page_rss_path = trim($page_rss_url);
+    if (str_starts_with($page_rss_path, '../')) $page_rss_path = substr($page_rss_path, 3);
+} elseif (str_starts_with($current, 'sosyal/')) {
+    $page_rss_path = 'sosyal/rss.php';
+}
+$page_rss_href = $page_rss_path !== '' && function_exists('dg_absolute_url') ? dg_absolute_url($page_rss_path) : $page_rss_path;
 
 $cart_total_count = function_exists('cart_count') ? cart_count() : 0;
 
@@ -82,6 +90,7 @@ function nav_link($file, $label, $current, $root = '') {
     <meta name="description" content="<?php echo e($page_meta_desc); ?>">
     <?php if ($page_robots !== ''): ?><meta name="robots" content="<?php echo e($page_robots); ?>"><?php endif; ?>
     <?php if ($canonical_url !== ''): ?><link rel="canonical" href="<?php echo e($canonical_url); ?>"><?php endif; ?>
+    <?php if ($page_rss_href !== ''): ?><link rel="alternate" type="application/rss+xml" title="DG Social RSS" href="<?php echo e($page_rss_href); ?>"><?php endif; ?>
     <meta name="theme-color" content="#0A1A15">
     <meta property="og:site_name" content="<?php echo e($company_name); ?>">
     <meta property="og:locale" content="tr_TR">
@@ -116,6 +125,7 @@ function nav_link($file, $label, $current, $root = '') {
     <?php if (!empty($page_css)): ?>
         <?php foreach ((array)$page_css as $css): ?>
             <link rel="stylesheet" href="<?php echo e($root . $css); ?>">
+            <?php if ($css === 'social.css'): ?><link rel="stylesheet" href="<?php echo e($root . 'social-forum.css'); ?>"><?php endif; ?>
         <?php endforeach; ?>
     <?php endif; ?>
 </head>

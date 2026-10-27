@@ -6,6 +6,16 @@ $upcomingEvents = $eventsData['upcoming'];
 $pastEvents = array_slice($eventsData['past'], 0, 12);
 $eventStatesItems = array_merge($upcomingEvents, $pastEvents);
 $socialStates = social_post_states(array_map(static fn(array $post): int => (int)$post['id'], $eventStatesItems), $socialUser);
+$eventFilter = (string)($_GET['filtre'] ?? 'tumu');
+if (!in_array($eventFilter, ['tumu', 'katildiklarim', 'benim'], true)) $eventFilter = 'tumu';
+if ($socialUser && $eventFilter !== 'tumu') {
+    $matchesEventFilter = static function (array $post) use ($socialStates, $socialUser, $eventFilter): bool {
+        if ($eventFilter === 'benim') return (int)$post['user_id'] === (int)$socialUser['id'];
+        return (int)$post['user_id'] === (int)$socialUser['id'] || !empty($socialStates[(int)$post['id']]['rsvp']);
+    };
+    $upcomingEvents = array_values(array_filter($upcomingEvents, $matchesEventFilter));
+    $pastEvents = array_values(array_filter($pastEvents, $matchesEventFilter));
+}
 $totalRsvp = 0;
 foreach ($upcomingEvents as $eventPost) $totalRsvp += (int)($eventPost['rsvp_count'] ?? 0);
 
@@ -32,6 +42,7 @@ include __DIR__ . '/../header.php';
                 <?php else: ?>
                     <a class="btn btn-primary social-small-btn" href="<?= e(social_login_url('sosyal/yeni.php?konu=etkinlikler')) ?>">Etkinlik açmak için giriş yap</a>
                 <?php endif; ?>
+                <a class="btn btn-ghost social-small-btn" href="sohbet.php?kanal=etkinlikler">Etkinlik sohbeti</a>
                 <a class="btn btn-ghost social-small-btn" href="kurallar.php#etkinlik-anket">Etkinlik kuralları</a>
             </div>
         </div>
@@ -46,9 +57,15 @@ include __DIR__ . '/../header.php';
     <?= social_flash_html() ?>
 
     <nav class="social-event-tabs" aria-label="Etkinlik bölümleri">
-        <a href="#yaklasan-etkinlikler">Yaklaşan etkinlikler</a>
-        <a href="#gecmis-etkinlikler">Geçmiş etkinlikler</a>
+        <a href="etkinlikler.php"<?= $eventFilter === 'tumu' ? ' aria-current="page"' : '' ?> data-preserve-scroll>Tüm etkinlikler</a>
+        <?php if ($socialUser): ?>
+            <a href="etkinlikler.php?filtre=katildiklarim"<?= $eventFilter === 'katildiklarim' ? ' aria-current="page"' : '' ?> data-preserve-scroll>Katıldıklarım</a>
+            <a href="etkinlikler.php?filtre=benim"<?= $eventFilter === 'benim' ? ' aria-current="page"' : '' ?> data-preserve-scroll>Benim etkinliklerim</a>
+        <?php endif; ?>
+        <a href="#yaklasan-etkinlikler">Yaklaşan</a>
+        <a href="#gecmis-etkinlikler">Geçmiş</a>
         <a href="<?= e(social_feed_url(['konu' => 'etkinlikler'])) ?>">Akışta göster</a>
+        <a href="sohbet.php?kanal=etkinlikler">Canlı etkinlik sohbeti</a>
     </nav>
 
     <section id="yaklasan-etkinlikler" class="social-events-section">

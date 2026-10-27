@@ -18,6 +18,7 @@ if ($editingPost && empty($socialUser['is_admin']) && (int)$socialUser['id'] !==
 $formErrors = [];
 $form = [
     'topic_slug' => social_slugify((string)($_GET['konu'] ?? 'genel-sohbet')),
+    'prefix' => '',
     'title' => '',
     'body' => '',
     'tags' => '',
@@ -41,12 +42,14 @@ $introTemplate = !$editingPost && (string)($_GET['sablon'] ?? '') === 'tanisma';
 if ($introTemplate) {
     $introName = (string)($socialProfile['display_name'] ?? $socialUser['username'] ?? 'Yeni üye');
     $form['topic_slug'] = 'genel-sohbet';
+    $form['prefix'] = 'tartisma';
     $form['title'] = 'Merhaba, ben ' . $introName;
     $form['body'] = "Merhaba! Ben {$introName}.\n\nŞu sıralar oynadığım oyunlar: \nOynadığım platform: \nBurada daha çok oyun önerileri ve topluluk etkinlikleri hakkında konuşmak istiyorum.";
     $form['tags'] = '#tanisma';
 }
 if ($editingPost) {
     $form['topic_slug'] = (string)$editingPost['topic_slug'];
+    $form['prefix'] = social_post_prefix($editingPost);
     $form['title'] = (string)$editingPost['title'];
     $form['body'] = (string)$editingPost['body'];
     $form['tags'] = implode(', ', array_map(static fn($tag): string => '#' . $tag, (array)$editingPost['tags']));
@@ -149,27 +152,41 @@ include __DIR__ . '/../header.php';
         <?= csrf_field() ?>
         <input type="hidden" name="edit_id" value="<?= $editingPost ? (int)$editingPost['id'] : 0 ?>">
 
-        <div class="field">
-            <label for="social-topic">Konu *</label>
-            <select id="social-topic" name="topic_slug" required data-social-topic-select>
-                <?php foreach ($topicOptions as $topic): ?>
-                    <?php $disabled = (!empty($topic['official_only']) && empty($socialUser['is_admin'])) || (empty($topic['active']) && (!$editingPost || $editingPost['topic_slug'] !== $topic['slug'])); ?>
-                    <option value="<?= e($topic['slug']) ?>"<?= $form['topic_slug'] === (string)$topic['slug'] ? ' selected' : '' ?><?= $disabled ? ' disabled' : '' ?>>
-                        <?= e($topic['icon']) ?> <?= e($topic['name']) ?><?= !empty($topic['official_only']) ? ' — yalnızca ekip' : '' ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
+        <div class="social-form-grid">
+            <div class="field">
+                <label for="social-topic">Konu *</label>
+                <select id="social-topic" name="topic_slug" required data-social-topic-select>
+                    <?php foreach ($topicOptions as $topic): ?>
+                        <?php $disabled = (!empty($topic['official_only']) && empty($socialUser['is_admin'])) || (empty($topic['active']) && (!$editingPost || $editingPost['topic_slug'] !== $topic['slug'])); ?>
+                        <option value="<?= e($topic['slug']) ?>"<?= $form['topic_slug'] === (string)$topic['slug'] ? ' selected' : '' ?><?= $disabled ? ' disabled' : '' ?>>
+                            <?= e($topic['icon']) ?> <?= e($topic['name']) ?><?= !empty($topic['official_only']) ? ' — yalnızca ekip' : '' ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="field">
+                <label for="social-prefix">Konu türü</label>
+                <select id="social-prefix" name="prefix" data-social-prefix-select>
+                    <?php foreach (social_post_prefixes() as $prefixSlug => $prefixLabel): ?>
+                        <option value="<?= e($prefixSlug) ?>"<?= $form['prefix'] === $prefixSlug ? ' selected' : '' ?>><?= e($prefixLabel) ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <p class="form-note">Soru, rehber, ekip ve etkinlik konuları daha kolay bulunur.</p>
+            </div>
         </div>
 
         <div class="field">
             <label for="social-title">Başlık *</label>
             <input id="social-title" type="text" name="title" required minlength="4" maxlength="140" value="<?= e($form['title']) ?>" placeholder="Tartışmanın başlığı">
+            <div class="social-similar-posts" data-similar-posts hidden></div>
         </div>
 
         <div class="field">
             <label for="social-body">İçerik *</label>
+            <?= social_editor_toolbar_html('social-body') ?>
             <textarea id="social-body" name="body" required minlength="10" maxlength="5000" rows="10" data-character-count placeholder="Düşünceni, soru veya rehberini yaz. @kullanici ve #etiket kullanabilirsin."><?= e($form['body']) ?></textarea>
-            <div class="social-form-meta"><span>Bağlantılar otomatik tanınır; HTML kabul edilmez.</span><span data-count-for="social-body">0 / 5000</span></div>
+            <div class="social-form-meta"><span>**kalın**, *italik*, `kod`, alıntı, liste ve ||gizli|| desteklenir; HTML kabul edilmez.</span><span data-count-for="social-body">0 / 5000</span></div>
+            <div class="social-draft-row"><span data-draft-status>Yazdıkların bu tarayıcıda taslak olarak saklanır.</span><button class="social-text-button" type="button" data-draft-discard>Taslağı sil</button></div>
         </div>
 
         <fieldset class="social-lfg-fields" data-lfg-fields data-topic-fields="oyun-arkadasi">

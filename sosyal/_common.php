@@ -9,6 +9,7 @@ $socialProfile = null;
 $socialTopics = [];
 $socialTopicMap = [];
 $socialUnread = 0;
+$socialDmUnread = 0;
 
 try {
     social_ensure_storage();
@@ -16,7 +17,9 @@ try {
         $socialUser = current_user();
         if ($socialUser) {
             $socialProfile = social_ensure_profile($socialUser);
+            social_touch_presence($socialUser);
             $socialUnread = social_unread_notification_count((int)$socialUser['id']);
+            $socialDmUnread = social_dm_unread_count((int)$socialUser['id']);
         }
     }
     $socialTopics = social_topics(true);
@@ -57,6 +60,20 @@ function social_flash_html(): string
     if ($done) return '';
     $done = true;
     $html = '';
+    global $socialUser, $socialProfile;
+    $announcement = social_announcement();
+    if (!empty($announcement['active']) && trim((string)$announcement['text']) !== '') {
+        $announcementUrl = trim((string)$announcement['url']);
+        $html .= '<div class="social-alert social-announcement" role="status" data-announcement="' . (int)$announcement['updated_at'] . '"><span>📣 ' . e($announcement['text']) . '</span>';
+        if ($announcementUrl !== '') {
+            $external = preg_match('~^https?://~i', $announcementUrl) === 1;
+            $html .= ' <a class="text-link" href="' . e($announcementUrl) . '"' . ($external ? ' target="_blank" rel="noopener"' : '') . '>Ayrıntılar</a>';
+        }
+        $html .= '<button type="button" class="social-announcement-close" data-announcement-dismiss aria-label="Duyuruyu kapat">×</button></div>';
+    }
+    if ($socialUser && $socialProfile && social_user_is_muted($socialProfile, $socialUser)) {
+        $html .= '<div class="social-alert is-warning" role="status">' . e(social_muted_error($socialProfile, $socialUser)) . '</div>';
+    }
     $flash = function_exists('flash_get') ? flash_get() : null;
     $error = function_exists('flash_error_get') ? flash_error_get() : null;
     if ($flash) {
@@ -82,7 +99,23 @@ function social_avatar_html(array $profile, string $size = ''): string
 {
     $name = (string)($profile['display_name'] ?? $profile['username'] ?? 'DG');
     $hue = social_avatar_hue((int)($profile['user_id'] ?? 0));
-    return '<span class="social-avatar ' . e($size) . '" style="--avatar-h:' . $hue . '" aria-hidden="true">' . e(social_avatar_initials($name)) . '</span>';
+    $avatar = trim((string)($profile['avatar'] ?? $profile['author_avatar'] ?? ''));
+    $inner = $avatar !== ''
+        ? '<img src="' . e(social_image_url($avatar)) . '" alt="" loading="lazy" decoding="async" onerror="this.remove()">'
+        : '';
+    $inner .= '<span class="social-avatar-initials">' . e(social_avatar_initials($name)) . '</span>';
+    return '<span class="social-avatar ' . e($size) . '" style="--avatar-h:' . $hue . '" aria-hidden="true">' . $inner . '</span>';
+}
+
+function social_presence_html(array $profile, ?array $viewer = null): string
+{
+    $userId = (int)($profile['user_id'] ?? 0);
+    if ($userId <= 0) return '<span class="social-presence">Resmî hesap</span>';
+    $online = array_key_exists('is_online', $profile)
+        ? !empty($profile['is_online'])
+        : ((!isset($profile['show_online']) || !empty($profile['show_online'])) && social_is_online($userId));
+    $label = social_last_seen_label($profile, $viewer);
+    return '<span class="social-presence' . ($online ? ' is-online' : '') . '"><i aria-hidden="true"></i>' . e($label) . '</span>';
 }
 
 function social_profile_url(array|string $profile): string
@@ -93,7 +126,22 @@ function social_profile_url(array|string $profile): string
 
 function social_post_url(int $postId, int $commentId = 0): string
 {
-    return 'gonderi.php?id=' . $postId . ($commentId > 0 ? '#yorum-' . $commentId : '');
+    return 'gonderi.php?id=' . $postId . ($commentId > 0 ? '&yorum=' . $commentId . '#yorum-' . $commentId : '');
+}
+
+function social_message_url(array|string|int $target): string
+{
+    if (is_int($target)) return 'mesajlar.php?sohbet=' . max(0, $target);
+    $username = is_array($target) ? (string)($target['username'] ?? '') : $target;
+    return 'mesajlar.php?kullanici=' . rawurlencode($username);
+}
+
+function social_prefix_badge_html(array $post): string
+{
+    $prefix = (string)($post['prefix'] ?? '');
+    $label = social_post_prefixes()[$prefix] ?? '';
+    if ($label === '' || $prefix === 'tartisma') return '';
+    return '<span class="social-mini-badge is-prefix">' . e($label) . '</span>';
 }
 
 function social_image_url(string $path): string
@@ -112,7 +160,9 @@ function social_query_url(string $file, array $params): string
 
 function social_feed_url(array $params = []): string
 {
-    return social_query_url('index.php', $params) . '#akis';
+    // Akış filtreleri kullanıcıyı sayfa üstüne göndermez; JS yerinde günceller,
+    // JS yoksa çapa tabanlı kaydırma geri yükleme devreye girer.
+    return social_query_url('index.php', $params);
 }
 
 function social_current_return_url(string $fragment = ''): string
@@ -126,10 +176,14 @@ function social_current_return_url(string $fragment = ''): string
 
 function social_subnav(string $active = 'feed'): string
 {
-    global $socialUser, $socialProfile, $socialUnread;
+    global $socialUser, $socialProfile, $socialUnread, $socialDmUnread;
     $items = [
         'feed' => ['index.php', 'Akış'],
+        'boards' => ['konular.php', 'Forum'],
+        'chat' => ['sohbet.php', 'Canlı Sohbet'],
+        'messages' => ['mesajlar.php', 'Mesajlar'],
         'events' => ['etkinlikler.php', 'Etkinlikler'],
+        'members' => ['uyeler.php', 'Üyeler'],
         'new' => ['yeni.php', 'Yeni gönderi'],
         'notifications' => ['bildirimler.php', 'Bildirimler'],
         'rules' => ['kurallar.php', 'Kurallar'],
@@ -137,8 +191,11 @@ function social_subnav(string $active = 'feed'): string
     $html = '<nav class="social-subnav" aria-label="DG Social menüsü">';
     foreach ($items as $key => [$href, $label]) {
         $html .= '<a href="' . e($href) . '"' . ($active === $key ? ' aria-current="page"' : '') . '>' . e($label);
-        if ($key === 'notifications' && $socialUnread > 0) {
-            $html .= ' <span class="social-count" data-notification-count>' . (int)$socialUnread . '</span>';
+        if ($key === 'notifications') {
+            $html .= ' <span class="social-count" data-notification-count' . ($socialUnread > 0 ? '' : ' hidden') . '>' . (int)$socialUnread . '</span>';
+        }
+        if ($key === 'messages') {
+            $html .= ' <span class="social-count" data-message-count' . ($socialDmUnread > 0 ? '' : ' hidden') . '>' . (int)$socialDmUnread . '</span>';
         }
         $html .= '</a>';
     }
@@ -154,24 +211,69 @@ function social_subnav(string $active = 'feed'): string
     return $html;
 }
 
-function social_pagination_html(string $file, array $params, int $page, int $pages, string $fragment = ''): string
+function social_pagination_html(string $file, array $params, int $page, int $pages, string $fragment = '', string $pageParam = 'sayfa'): string
 {
     if ($pages <= 1) return '';
-    $fragment = trim($fragment, '#');
-    $suffix = $fragment !== '' ? '#' . $fragment : '';
+    // $fragment eski çağrılarla uyumluluk için durur; sayfalama artık kullanıcıyı
+    // bölümün üstüne taşımaz. Konum, AJAX akış + scroll-restore ile korunur.
+    $suffix = '';
     $html = '<nav class="social-pagination" aria-label="Sayfalar">';
     if ($page > 1) {
-        $html .= '<a href="' . e(social_query_url($file, array_merge($params, ['sayfa' => $page - 1])) . $suffix) . '">← Önceki</a>';
+        $html .= '<a href="' . e(social_query_url($file, array_merge($params, [$pageParam => $page - 1])) . $suffix) . '" data-preserve-scroll>← Önceki</a>';
     }
     $start = max(1, $page - 2);
     $end = min($pages, $page + 2);
+    if ($start > 1) {
+        $html .= '<a href="' . e(social_query_url($file, array_merge($params, [$pageParam => 1]))) . '" data-preserve-scroll>1</a><span class="social-pagination-gap">…</span>';
+    }
     for ($i = $start; $i <= $end; $i++) {
-        $html .= '<a href="' . e(social_query_url($file, array_merge($params, ['sayfa' => $i])) . $suffix) . '"' . ($i === $page ? ' aria-current="page"' : '') . '>' . $i . '</a>';
+        $html .= '<a href="' . e(social_query_url($file, array_merge($params, [$pageParam => $i])) . $suffix) . '"' . ($i === $page ? ' aria-current="page"' : '') . ' data-preserve-scroll>' . $i . '</a>';
+    }
+    if ($end < $pages) {
+        $html .= '<span class="social-pagination-gap">…</span><a href="' . e(social_query_url($file, array_merge($params, [$pageParam => $pages]))) . '" data-preserve-scroll>' . $pages . '</a>';
     }
     if ($page < $pages) {
-        $html .= '<a href="' . e(social_query_url($file, array_merge($params, ['sayfa' => $page + 1])) . $suffix) . '">Sonraki →</a>';
+        $html .= '<a href="' . e(social_query_url($file, array_merge($params, [$pageParam => $page + 1])) . $suffix) . '" data-preserve-scroll>Sonraki →</a>';
     }
     return $html . '</nav>';
+}
+
+function social_editor_toolbar_html(string $targetId): string
+{
+    $buttons = [
+        ['bold', 'Kalın', 'B'],
+        ['italic', 'İtalik', 'I'],
+        ['code', 'Kod', '</>'],
+        ['quote', 'Alıntı', '❝'],
+        ['list', 'Liste', '• Liste'],
+        ['spoiler', 'Spoiler', 'Spoiler'],
+        ['link', 'Bağlantı', '🔗'],
+    ];
+    $html = '<div class="social-editor-toolbar" role="toolbar" aria-label="Biçimlendirme araçları">';
+    foreach ($buttons as [$command, $label, $glyph]) {
+        $html .= '<button type="button" data-format-command="' . e($command) . '" data-format-target="' . e($targetId) . '" title="' . e($label) . '" aria-label="' . e($label) . '">' . e($glyph) . '</button>';
+    }
+    $html .= '<button type="button" class="social-editor-preview-btn" data-preview-toggle data-format-target="' . e($targetId) . '">Önizleme</button>';
+    $html .= '<span class="social-editor-hint">**kalın**, *italik*, `kod`, &gt; alıntı, ||spoiler||</span></div>';
+    $html .= '<div class="social-editor-preview social-rich-text" data-editor-preview hidden><p class="muted">Önizleme burada görünecek.</p></div>';
+    return $html;
+}
+
+function social_generic_report_form(string $type, int $targetId, string $returnUrl, array $extra = []): string
+{
+    $html = '<details class="social-report"><summary>Şikâyet et</summary>';
+    $html .= '<form method="post" action="aksiyon.php" data-social-ajax="report">' . csrf_field();
+    $html .= '<input type="hidden" name="islem" value="sikayet">';
+    $html .= '<input type="hidden" name="target_type" value="' . e($type) . '">';
+    $html .= '<input type="hidden" name="target_id" value="' . $targetId . '">';
+    foreach (['post_id', 'conversation_id', 'channel'] as $field) {
+        if (isset($extra[$field])) $html .= '<input type="hidden" name="' . e($field) . '" value="' . e((string)$extra[$field]) . '">';
+    }
+    $html .= '<input type="hidden" name="return" value="' . e($returnUrl) . '">';
+    $html .= '<label>Sebep<select name="reason"><option>Spam</option><option>Hakaret / Taciz</option><option>Dolandırıcılık</option><option>Uygunsuz içerik</option><option>Telif</option><option>Diğer</option></select></label>';
+    $html .= '<label>Açıklama<textarea name="details" maxlength="600" rows="3" placeholder="Moderatör için kısa not (isteğe bağlı)"></textarea></label>';
+    $html .= '<button class="btn btn-ghost social-small-btn" type="submit">Şikâyeti gönder</button></form></details>';
+    return $html;
 }
 
 function social_lfg_label(string $key): string
