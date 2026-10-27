@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/lib/shop.php';
+require_once __DIR__ . '/lib/social.php';
 
 $user = null;
 $is_logged = false;
@@ -133,12 +134,21 @@ $dg_config = [
     'loginNext' => 'index.php',
 ];
 
+$social_latest = [];
+$social_topics_home = [];
+try {
+    $social_latest = social_list_posts(['sort' => 'activity', 'per_page' => 3], $user)['items'] ?? [];
+    $social_topics_home = array_column(social_topics(), 'name', 'slug');
+} catch (Throwable $e) {
+    error_log('[index social latest] ' . $e->getMessage());
+}
+
 $flash = flash_get();
 $flash_err = flash_error_get();
 
 // SEO ve üst bilgi eski ana sayfadaki gibi config.php + header.php'den gelir.
 $page_title = '';
-$page_css = ['shop.css', 'assets/css/dcoin.css'];
+$page_css = ['shop.css', 'social.css', 'assets/css/dcoin.css'];
 $body_class = 'shop-page home-page dcoin-page';
 include __DIR__ . '/header.php';
 ?>
@@ -510,6 +520,38 @@ include __DIR__ . '/header.php';
                 </div>
             </aside>
         </div>
+    </div>
+</section>
+
+<section class="social-home-section" id="topluluk" aria-labelledby="community-title">
+    <div class="social-home-inner">
+        <div class="social-home-head">
+            <div>
+                <p class="eyebrow">DG Social</p>
+                <h2 id="community-title">Toplulukta neler oluyor?</h2>
+            </div>
+            <p>Herkes okuyabilir; gönderi ve yorumlar mevcut Device Game hesabınla. Oyun önerileri, rehberler, yardım ve oyun arkadaşı ilanları tek akışta.</p>
+            <a href="sosyal/index.php" class="btn btn-primary">Sosyal akışa git</a>
+        </div>
+
+        <?php if ($social_latest): ?>
+            <div class="social-home-grid">
+                <?php foreach ($social_latest as $social_post_home): ?>
+                    <a class="social-home-card" href="sosyal/gonderi.php?id=<?php echo (int)$social_post_home['id']; ?>">
+                        <small><?php echo e($social_topics_home[(string)$social_post_home['topic_slug']] ?? (string)$social_post_home['topic_slug']); ?> · @<?php echo e($social_post_home['author_username']); ?></small>
+                        <h3><?php echo e($social_post_home['title']); ?></h3>
+                        <p><?php echo e($social_post_home['excerpt']); ?></p>
+                        <p><strong>GG <?php echo (int)$social_post_home['gg_count']; ?></strong> · <?php echo (int)$social_post_home['comment_count']; ?> yorum</p>
+                    </a>
+                <?php endforeach; ?>
+            </div>
+        <?php else: ?>
+            <div class="social-home-grid">
+                <a class="social-home-card" href="sosyal/index.php?konu=oyun-arkadasi"><small>Oyun Arkadaşı (LFG)</small><h3>Ekibini kur</h3><p>Oyun, platform, rank ve saat bilgisiyle sana uyan oyuncuları bul.</p></a>
+                <a class="social-home-card" href="sosyal/index.php?konu=rehberler"><small>Rehberler &amp; Taktikler</small><h3>Bilgini paylaş</h3><p>Oyuncu rehberleri, ipuçları ve kurulum çözümleri toplulukta.</p></a>
+                <a class="social-home-card" href="sosyal/index.php?konu=duyurular"><small>Duyurular</small><h3>Device Game’den haberler</h3><p>Resmî duyuruları ve mağaza fırsatlarını tek yerden takip et.</p></a>
+            </div>
+        <?php endif; ?>
     </div>
 </section>
 

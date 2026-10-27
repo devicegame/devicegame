@@ -438,3 +438,36 @@ a.dg-blog-row-title:hover{color:var(--cyan)}
   .dg-blog-actions{flex:1 0 100%;flex-direction:row;flex-wrap:wrap}
   .dg-blog-actions form,.dg-blog-actions .dg-btn{flex:1}
 }
+
+/* ----- DG Social yönetimi ----- */
+.dg-social-admin-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.dg-social-admin-tabs a{font:600 12px 'Instrument Sans',sans-serif;padding:9px 14px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:rgba(255,255,255,.04)}
+.dg-social-admin-tabs a span{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:rgba(79,224,160,.14);color:var(--cyan);font-size:10px;margin-left:4px}
+.dg-social-admin-tabs a.is-active{color:#0A1A15;background:var(--cyan);border-color:var(--cyan)}
+.dg-social-admin-tabs a.is-active span{background:rgba(10,26,21,.18);color:#0A1A15}
+.dg-social-admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.dg-social-admin-list{display:flex;flex-direction:column;gap:10px;padding:14px}
+.dg-social-admin-item{display:flex;gap:14px;align-items:flex-start;background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:13px}
+.dg-social-admin-item>div:first-child{flex:1;min-width:0}
+.dg-social-admin-title{display:block;color:var(--text);font:700 14px/1.35 'Instrument Sans',sans-serif}
+.dg-social-admin-title:hover{color:var(--cyan)}
+.dg-social-admin-item p{font-size:12px;line-height:1.55;color:var(--muted);margin-top:5px;overflow-wrap:anywhere}
+.dg-social-admin-item code{font:500 11px 'Instrument Sans',sans-serif;color:var(--muted);background:rgba(255,255,255,.04);border:1px solid var(--line);padding:5px 8px;border-radius:999px}
+.dg-social-admin-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+.dg-social-admin-actions{display:flex;flex-direction:column;gap:6px;flex:0 0 126px}
+.dg-social-admin-actions form{margin:0}
+.dg-social-admin-actions .dg-btn{width:100%;font-size:11px;justify-content:center}
+.dg-social-danger{color:var(--magenta)!important;border-color:rgba(224,96,122,.28)!important}
+.dg-social-admin-filter{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:14px;border-bottom:1px solid var(--line)}
+.dg-social-admin-filter .dg-search{min-width:200px;max-width:none}
+.dg-social-admin-filter select{background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--text);padding:10px 12px;border-radius:12px;font:500 13px 'Instrument Sans',sans-serif;outline:none}
+.dg-social-admin-filter select:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(79,224,160,.12)}
+.dg-social-admin-pagination{display:flex;justify-content:center;align-items:center;gap:14px;padding:0 14px 16px;color:var(--muted);font-size:12px}
+.dg-social-admin-pagination a{color:var(--cyan);font-weight:700}
+@media(max-width:980px){.dg-social-admin-grid{grid-template-columns:1fr}}
+@media(max-width:620px){
+  .dg-social-admin-item{flex-wrap:wrap}
+  .dg-social-admin-item>div:first-child{flex-basis:100%}
+  .dg-social-admin-actions{flex:1 0 100%;flex-direction:row;flex-wrap:wrap}
+  .dg-social-admin-actions form,.dg-social-admin-actions .dg-btn{flex:1}
+}

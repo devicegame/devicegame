@@ -32,6 +32,7 @@ function admin_head(string $title): void {
     <a href="users.php" class="<?=basename($_SERVER['SCRIPT_NAME'])==='users.php'?'active':''?>">👥 Kullanıcılar</a>
     <a href="store.php" class="<?=basename($_SERVER['SCRIPT_NAME'])==='store.php'?'active':''?>">🛒 Mağaza</a>
     <a href="blog.php" class="<?=basename($_SERVER['SCRIPT_NAME'])==='blog.php'?'active':''?>">📰 Blog</a>
+    <a href="social.php" class="<?=basename($_SERVER['SCRIPT_NAME'])==='social.php'?'active':''?>">💬 Sosyal</a>
     <a href="logs.php" class="<?=basename($_SERVER['SCRIPT_NAME'])==='logs.php'?'active':''?>">📜 Loglar</a>
   </nav>
   <div style="display:flex;gap:8px;align-items:center">

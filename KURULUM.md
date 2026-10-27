@@ -2,13 +2,15 @@
 
 > **Dosyaları yükle, siteyi aç, çalışsın.** MySQL, phpMyAdmin, SQL içe aktarma ve veritabanı şifresi yok.
 
-DeviceGame'in D-Coin sistemi artık **Vanilla PHP + JSON dosya depolama** ile çalışır. Tüm uygulama verisi tek dosyada tutulur:
+DeviceGame'in D-Coin sistemi artık **Vanilla PHP + JSON dosya depolama** ile çalışır. D-Coin/çekirdek verisi tek dosyada tutulur:
 
 ```text
 storage/dg/database.json
 ```
 
 Bu dosya ilk sayfa açılışında otomatik oluşturulur. Kullanıcı ve video kayıtlarının yanında, eski mağazanın `storage/products.json` içindeki gerçek ürün kataloğu D-Coin mağazasına otomatik aktarılır; uydurma örnek ürün kullanılmaz.
+
+**DG Social** verileri bu çekirdek dosyaya yazılmaz. Forum + akış; profiller, gönderiler, yorumlar ve indeksleri `storage/social/` altında parçalı JSON/JSONL olarak, güvenilir üyelerin yüklediği görselleri `uploads/social/` altında tutar. Bu klasörler ilk sosyal sayfa açılışında kendiliğinden oluşur.
 
 ---
 
@@ -20,7 +22,7 @@ Bu dosya ilk sayfa açılışında otomatik oluşturulur. Kullanıcı ve video k
 | PHP `json` eklentisi | Zorunlu (neredeyse her hostingde açık) |
 | PHP `session` | Zorunlu |
 | `mbstring` | Zorunlu değil; yoksa fallback kullanılır |
-| Yazma izni | `storage/dg/` ve `uploads/` için |
+| Yazma izni | `storage/` (altında `dg/` ve `social/` oluşur) ve `uploads/` için |
 | Apache veya Nginx | Apache'de hazır `.htaccess` koruması var |
 
 **Gerekmez:** MySQL, MariaDB, PDO, `pdo_mysql`, Composer, Node.js.
@@ -54,9 +56,11 @@ hata2.php
 ## 3) Klasör İzinlerini Ver
 
 ```text
-uploads/      755 veya 775
-storage/      755 veya 775
-storage/dg/   755 veya 775
+uploads/         755 veya 775
+uploads/social/  755 veya 775  (ilk sosyal açılışta oluşur)
+storage/         755 veya 775
+storage/dg/      755 veya 775
+storage/social/  755 veya 775  (ilk sosyal açılışta oluşur)
 ```
 
 `storage/dg/database.json` ilk açılışta oluşur. Dosya oluşmuşsa izni genellikle:
@@ -78,6 +82,7 @@ Tarayıcıda ana sayfayı aç:
 | `/` veya `/index.php` | Ana sayfa, video oynatıcı ve mağaza |
 | `/login.php` | Giriş formu |
 | `/register.php` | Kayıt formu |
+| `/sosyal/index.php` | DG Social forum + akış (herkese açık okuma) |
 | `/admin/index.php` | Admin paneli (yalnızca admin) |
 | `/diagnose.php` | Kurulum teşhisi |
 
@@ -112,6 +117,7 @@ Tarayıcıda ana sayfayı aç:
 4. Video bitince D-Coin otomatik eklenir ve sağ üst bakiye güncellenir.
 5. Ana sayfa, `shop.php` veya ürün detayından **D-Coin ile Al** de. Key stoklu ürünlerde key teslim edilir; her satın almada ayrıca bir sipariş kodu oluşur. Sonuç penceresindeki **Sipariş kodunu WhatsApp’tan gönder** düğmesi, ürün ve sipariş kodunu hazır mesaj olarak açar (ürün anahtarı mesaja eklenmez).
 6. `/admin/index.php` içinde istatistiklerin değiştiğini kontrol et.
+7. `/sosyal/index.php` adresini aç. Giriş yapmadan gönderileri okuyabildiğini, giriş yaptıktan sonra gönderi/yorum yazabildiğini doğrula. Yeni bir hesabın ilk içeriği onay kuyruğuna düşerse `/admin/social.php` ekranından **Yayınla**.
 
 Varsayılan günlük izleme limiti **5**'tir. Admin → Dashboard → Hızlı Ayar bölümünden değiştirilir.
 
@@ -126,6 +132,7 @@ Varsayılan günlük izleme limiti **5**'tir. Admin → Dashboard → Hızlı Ay
 | `/admin/users.php` | Kullanıcı ara, D-Coin ekle/çıkar, ban/unban, admin yap/al |
 | `/admin/store.php` | Eski katalog ürünleri + D-Coin ürünleri, TL/D-Coin fiyatı, **adet stok veya tek tek key** yönetimi |
 | `/admin/blog.php` | Blog yazısı ve kategori ekleme/düzenleme/silme, taslaklar ve yayın durumu yönetimi (`storage/blog.json`, `storage/blog-categories.json`) |
+| `/admin/social.php` | DG Social onay kuyruğu, şikâyetler, içerik moderasyonu, forum konuları ve indeks bakımı |
 | `/admin/logs.php` | İzleme ve satın alma logları, arama, CSV export |
 
 ---
@@ -149,19 +156,33 @@ storage/dg/database.json
 - `purchases`
 - `settings`
 
+### DG Social verisi
+
+Sosyal platform ayrı tutulur:
+
+```text
+storage/social/   Profiller, gönderi JSON belgeleri, yorum/şikâyet JSONL,
+                  takip/bildirim kayıtları, hız limitleri ve akış indeksleri
+uploads/social/   Güvenilir üyelerin gönderi görselleri
+```
+
+Akış sayfaları hazır `indexes/` özetlerini okur; yazmalar kilitli ve atomiktir. İndeks verisi şüpheliyse `/admin/social.php` → **Bakım** bölümünden indeksleri kanonik gönderi/yorum dosyalarından yeniden oluşturun. İndeksleri elle düzenlemek gerekmez.
+
 ### Yedek almak
 
-`database.json` dosyasını kopyalaman yeterlidir. Geri yüklemek için aynı yola geri koy.
+D-Coin için `database.json` dosyasını kopyalaman yeterlidir. Tam site yedeğinde ayrıca `storage/blog.json`, `storage/blog-categories.json`, `storage/products.json`, **`storage/social/` klasörünün tamamını** ve **`uploads/social/` klasörünü** yedekleyin. Geri yüklemek için aynı yollara geri koyun.
 
 ### Güncelleme yaparken dikkat
 
-Kod dosyalarını güncellerken hostingdeki mevcut şu dosyayı ezme/silme:
+Kod dosyalarını güncellerken hostingdeki mevcut şu çalışma zamanı verilerini ezme/silme:
 
 ```text
 storage/dg/database.json
+storage/social/
+uploads/social/
 ```
 
-Repo bu dosyayı takip etmez; her hosting kurulumunun kendi canlı verisi ayrıdır.
+Repo bu yolları takip etmez; her hosting kurulumunun kendi canlı verisi ayrıdır.
 
 ### Sıfırdan başlamak
 
@@ -177,7 +198,7 @@ Repo bu dosyayı takip etmez; her hosting kurulumunun kendi canlı verisi ayrıd
 
 - Kullanıcı şifreleri düz metin tutulmaz; `password_hash` (bcrypt) kullanılır.
 - `database.json` şifre hash'lerini ve ürün keylerini içerir; webden erişilemez olmalıdır.
-- Apache için `storage/.htaccess` ve `storage/dg/.htaccess` tüm istekleri reddeder.
+- Apache için `storage/.htaccess`, `storage/dg/.htaccess` ve çalışma anında oluşturulan `storage/social/.htaccess` tüm istekleri reddeder. `uploads/.htaccess` PHP çalıştırmayı engeller; sosyal görseller yalnızca izin verilen raster uzantılarıyla rastgele adla saklanır.
 - Nginx kullanıyorsan şu kuralı ekle:
 
 ```nginx
@@ -203,7 +224,7 @@ location ^~ /storage/ {
 siteadın.com/diagnose.php
 ```
 
-Bu sayfa PHP sürümünü, dosyaları, `storage/dg` izinlerini, JSON bütünlüğünü, admin hesabını ve `error_log` son satırlarını kontrol eder.
+Bu sayfa PHP sürümünü, dosyaları, `storage/dg` ve `storage/social` izinlerini, JSON bütünlüğünü, sosyal sayaçları, admin hesabını ve `error_log` son satırlarını kontrol eder.
 
 İşin bitince sil:
 
@@ -237,7 +258,7 @@ Yeni teşhis yalnızca yorum olmayan gerçek PHP direktiflerini arar. Dosyadaki 
 
 ## 11) Ölçek Notu
 
-Dosya tabanlı sistem küçük/orta ölçekli ve tek sunuculu kurulum için en temiz çözümdür. Her değişiklik tek JSON dosyasını kilitleyip atomik olarak günceller. Çok yüksek eşzamanlı trafik, birden fazla sunucu veya çok büyük log hacmi oluşursa ileride yeniden ilişkisel veritabanına geçiş planlanmalıdır.
+D-Coin çekirdeği tek JSON kullanırken DG Social parçalı JSON/JSONL ve hazır indeksler kullanır; böylece sosyal yazmalar çekirdek dosyayı büyütmez. Yine de dosya tabanlı yapı küçük/orta ölçekli, tek sunuculu kurulum içindir. Çok yüksek eşzamanlı yazma, birden fazla uygulama sunucusu veya çok büyük topluluk hacmi oluşursa sosyal katmanı ilişkisel veritabanına taşımak gerekir.
 
 ---
 

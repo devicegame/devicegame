@@ -1,0 +1,86 @@
+<?php
+if (!isset($post) || !is_array($post)) return;
+$socialPostId = (int)($post['id'] ?? 0);
+$socialCardTopic = $socialTopicMap[(string)($post['topic_slug'] ?? '')] ?? null;
+$socialCardProfile = [
+    'user_id' => (int)($post['user_id'] ?? 0),
+    'username' => (string)($post['author_username'] ?? ''),
+    'display_name' => (string)($post['author_display'] ?? $post['author_username'] ?? 'Oyuncu'),
+];
+$socialCardState = $socialStates[$socialPostId] ?? ['gg' => false, 'saved' => false];
+$socialReturn = basename((string)($_SERVER['SCRIPT_NAME'] ?? 'index.php')) . (!empty($_SERVER['QUERY_STRING']) ? '?' . (string)$_SERVER['QUERY_STRING'] : '');
+?>
+<article class="social-post-card<?= !empty($post['pinned']) ? ' is-pinned' : '' ?>" aria-labelledby="post-title-<?= $socialPostId ?>">
+    <div class="social-post-top">
+        <a class="social-author" href="<?= e(social_profile_url($socialCardProfile)) ?>">
+            <?= social_avatar_html($socialCardProfile) ?>
+            <span>
+                <strong><?= e($socialCardProfile['display_name']) ?></strong>
+                <small>@<?= e($socialCardProfile['username']) ?> · <?= e(social_time_ago((int)($post['created_at'] ?? time()))) ?></small>
+            </span>
+        </a>
+        <div class="social-post-badges">
+            <?php if ($socialCardTopic): ?>
+                <a class="social-topic-badge" href="index.php?konu=<?= rawurlencode((string)$socialCardTopic['slug']) ?>"><?= e($socialCardTopic['icon'] ?? '💬') ?> <?= e($socialCardTopic['name']) ?></a>
+            <?php endif; ?>
+            <?php if (!empty($post['pinned'])): ?><span class="social-mini-badge">Sabit</span><?php endif; ?>
+            <?php if (!empty($post['locked'])): ?><span class="social-mini-badge">Kilitli</span><?php endif; ?>
+            <?php if (($post['status'] ?? 'published') !== 'published'): ?><span class="social-mini-badge is-warning"><?= e(social_status_label((string)$post['status'])) ?></span><?php endif; ?>
+        </div>
+    </div>
+
+    <h3 id="post-title-<?= $socialPostId ?>" class="social-post-title">
+        <a href="<?= e(social_post_url($socialPostId)) ?>"><?= e($post['title'] ?? '') ?></a>
+    </h3>
+    <?php if (trim((string)($post['excerpt'] ?? '')) !== ''): ?>
+        <p class="social-post-excerpt"><?= e($post['excerpt']) ?></p>
+    <?php endif; ?>
+
+    <?php if (!empty($post['image'])): ?>
+        <a class="social-post-media" href="<?= e(social_post_url($socialPostId)) ?>" aria-label="<?= e($post['title'] ?? 'Gönderiyi aç') ?>">
+            <img src="<?= e(social_image_url((string)$post['image'])) ?>" alt="" loading="lazy" decoding="async" onerror="this.closest('.social-post-media')?.remove()">
+        </a>
+    <?php endif; ?>
+
+    <?php if (!empty($post['meta']) && array_filter((array)$post['meta'])): ?>
+        <div class="social-lfg-chips" aria-label="Oyun arkadaşı bilgileri">
+            <?php foreach ((array)$post['meta'] as $key => $value): ?>
+                <?php if (trim((string)$value) !== ''): ?><span><b><?= e(social_lfg_label((string)$key)) ?>:</b> <?= e($value) ?></span><?php endif; ?>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if (!empty($post['tags'])): ?>
+        <div class="social-tags">
+            <?php foreach ((array)$post['tags'] as $tag): ?>
+                <a href="index.php?q=<?= rawurlencode('#' . (string)$tag) ?>">#<?= e($tag) ?></a>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+
+    <div class="social-post-actions">
+        <?php if ($socialUser): ?>
+            <form method="post" action="aksiyon.php" data-social-ajax="gg">
+                <?= csrf_field() ?>
+                <input type="hidden" name="islem" value="gg">
+                <input type="hidden" name="post_id" value="<?= $socialPostId ?>">
+                <input type="hidden" name="return" value="<?= e($socialReturn) ?>">
+                <button type="submit" class="social-action<?= !empty($socialCardState['gg']) ? ' is-active' : '' ?>" aria-pressed="<?= !empty($socialCardState['gg']) ? 'true' : 'false' ?>">GG <span data-gg-count><?= (int)($post['gg_count'] ?? 0) ?></span></button>
+            </form>
+        <?php else: ?>
+            <a class="social-action" href="<?= e(social_login_url('sosyal/' . $socialReturn)) ?>">GG <span><?= (int)($post['gg_count'] ?? 0) ?></span></a>
+        <?php endif; ?>
+
+        <a class="social-action" href="<?= e(social_post_url($socialPostId)) ?>#yorumlar">💬 <?= (int)($post['comment_count'] ?? 0) ?> yorum</a>
+
+        <?php if ($socialUser): ?>
+            <form method="post" action="aksiyon.php" data-social-ajax="save">
+                <?= csrf_field() ?>
+                <input type="hidden" name="islem" value="kaydet">
+                <input type="hidden" name="post_id" value="<?= $socialPostId ?>">
+                <input type="hidden" name="return" value="<?= e($socialReturn) ?>">
+                <button type="submit" class="social-action<?= !empty($socialCardState['saved']) ? ' is-active' : '' ?>" aria-pressed="<?= !empty($socialCardState['saved']) ? 'true' : 'false' ?>"><?= !empty($socialCardState['saved']) ? 'Kaydedildi' : 'Kaydet' ?></button>
+            </form>
+        <?php endif; ?>
+    </div>
+</article>
