@@ -3,7 +3,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/db.php';
 
 $next = trim((string)($_GET['next'] ?? 'sosyal/index.php?hosgeldin=1'));
-if (!preg_match('#^(?:index\.php|shop\.php|product\.php|blog/(?:index|yazi)\.php|sosyal/(?:index|gonderi|profil|bildirimler|yeni|etkinlikler|kurallar)\.php)(?:\?[A-Za-z0-9_=&%+.,@:-]*)?(?:#[A-Za-z0-9_-]+)?$#', $next)) {
+if (!preg_match('#^(?:index\.php|shop\.php|product\.php|blog/(?:index|yazi)\.php|sosyal/(?:index|konular|gonderi|profil|bildirimler|yeni|etkinlikler|kurallar|mesajlar|sohbet|uyeler)\.php)(?:\?[A-Za-z0-9_=&%+.,@:-]*)?(?:\#[A-Za-z0-9_-]+)?$#', $next)) {
     $next = 'sosyal/index.php?hosgeldin=1';
 }
 if (is_logged_in()) { header('Location: ' . $next); exit; }

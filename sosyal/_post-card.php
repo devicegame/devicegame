@@ -6,11 +6,12 @@ $socialCardProfile = [
     'user_id' => (int)($post['user_id'] ?? 0),
     'username' => (string)($post['author_username'] ?? ''),
     'display_name' => (string)($post['author_display'] ?? $post['author_username'] ?? 'Oyuncu'),
+    'avatar' => (string)($post['author_avatar'] ?? ''),
 ];
-$socialCardState = $socialStates[$socialPostId] ?? ['gg' => false, 'saved' => false, 'poll_vote' => '', 'rsvp' => false];
+$socialCardState = $socialStates[$socialPostId] ?? ['gg' => false, 'saved' => false, 'poll_vote' => '', 'rsvp' => false, 'watching' => false, 'unread' => false];
 $socialReturn = social_current_return_url('gonderi-' . $socialPostId);
 ?>
-<article id="gonderi-<?= $socialPostId ?>" class="social-post-card<?= !empty($post['pinned']) ? ' is-pinned' : '' ?><?= !empty($post['award']) ? ' is-awarded' : '' ?>" aria-labelledby="post-title-<?= $socialPostId ?>">
+<article id="gonderi-<?= $socialPostId ?>" class="social-post-card<?= !empty($post['pinned']) ? ' is-pinned' : '' ?><?= !empty($post['award']) ? ' is-awarded' : '' ?><?= !empty($socialCardState['unread']) ? ' is-unread' : '' ?>" aria-labelledby="post-title-<?= $socialPostId ?>">
     <div class="social-post-top">
         <a class="social-author" href="<?= e(social_profile_url($socialCardProfile)) ?>">
             <?= social_avatar_html($socialCardProfile) ?>
@@ -23,6 +24,9 @@ $socialReturn = social_current_return_url('gonderi-' . $socialPostId);
             <?php if ($socialCardTopic): ?>
                 <a class="social-topic-badge" href="<?= e(social_feed_url(['konu' => (string)$socialCardTopic['slug']])) ?>"><?= e($socialCardTopic['icon'] ?? '💬') ?> <?= e($socialCardTopic['name']) ?></a>
             <?php endif; ?>
+            <?= social_prefix_badge_html($post) ?>
+            <?php if (!empty($socialCardState['unread'])): ?><span class="social-mini-badge is-unread" data-unread-badge>Yeni</span><?php endif; ?>
+            <?php if ((int)($post['solution_comment_id'] ?? 0) > 0): ?><span class="social-mini-badge is-solution">✓ Çözüldü</span><?php endif; ?>
             <?= social_award_badge_html($post) ?>
             <?php if (!empty($post['poll'])): ?><span class="social-mini-badge">Anket</span><?php endif; ?>
             <?php if (social_is_event_post($post)): ?><span class="social-mini-badge">Etkinlik</span><?php endif; ?>
@@ -38,6 +42,12 @@ $socialReturn = social_current_return_url('gonderi-' . $socialPostId);
     <?php if (trim((string)($post['excerpt'] ?? '')) !== ''): ?>
         <p class="social-post-excerpt"><?= e($post['excerpt']) ?></p>
     <?php endif; ?>
+    <div class="social-post-stats" aria-label="Konu istatistikleri">
+        <span>👁 <?= number_format((int)($post['view_count'] ?? 0), 0, ',', '.') ?> görüntülenme</span>
+        <span>💬 <?= (int)($post['comment_count'] ?? 0) ?> yorum</span>
+        <?php if ((int)($post['watch_count'] ?? 0) > 0): ?><span>🔔 <?= (int)$post['watch_count'] ?> takipçi</span><?php endif; ?>
+        <span>Son aktivite <?= e(social_time_ago((int)($post['last_activity_at'] ?? $post['created_at'] ?? time()))) ?></span>
+    </div>
 
     <?php if (!empty($post['image'])): ?>
         <a class="social-post-media" href="<?= e(social_post_url($socialPostId)) ?>" aria-label="<?= e($post['title'] ?? 'Gönderiyi aç') ?>">
@@ -60,7 +70,7 @@ $socialReturn = social_current_return_url('gonderi-' . $socialPostId);
     <?php if (!empty($post['tags'])): ?>
         <div class="social-tags">
             <?php foreach ((array)$post['tags'] as $tag): ?>
-                <a href="index.php?q=<?= rawurlencode('#' . (string)$tag) ?>#akis">#<?= e($tag) ?></a>
+                <a href="index.php?q=<?= rawurlencode('#' . (string)$tag) ?>" data-preserve-scroll>#<?= e($tag) ?></a>
             <?php endforeach; ?>
         </div>
     <?php endif; ?>
@@ -87,6 +97,13 @@ $socialReturn = social_current_return_url('gonderi-' . $socialPostId);
                 <input type="hidden" name="post_id" value="<?= $socialPostId ?>">
                 <input type="hidden" name="return" value="<?= e($socialReturn) ?>">
                 <button type="submit" class="social-action<?= !empty($socialCardState['saved']) ? ' is-active' : '' ?>" aria-pressed="<?= !empty($socialCardState['saved']) ? 'true' : 'false' ?>"><?= !empty($socialCardState['saved']) ? 'Kaydedildi' : 'Kaydet' ?></button>
+            </form>
+            <form method="post" action="aksiyon.php" data-social-ajax="watch">
+                <?= csrf_field() ?>
+                <input type="hidden" name="islem" value="gonderi_takip">
+                <input type="hidden" name="post_id" value="<?= $socialPostId ?>">
+                <input type="hidden" name="return" value="<?= e($socialReturn) ?>">
+                <button type="submit" class="social-action<?= !empty($socialCardState['watching']) ? ' is-active' : '' ?>" aria-pressed="<?= !empty($socialCardState['watching']) ? 'true' : 'false' ?>" data-label-active="Takip ediliyor" data-label-inactive="Takip et"><?= !empty($socialCardState['watching']) ? 'Takip ediliyor' : 'Takip et' ?></button>
             </form>
         <?php endif; ?>
     </div>

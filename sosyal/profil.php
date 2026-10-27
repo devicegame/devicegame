@@ -12,7 +12,7 @@ if ($profile && $socialUser && (int)$socialUser['id'] === (int)$profile['user_id
         $profileErrors[] = 'Güvenlik doğrulaması başarısız. Sayfayı yenileyip tekrar dene.';
     } else {
         try {
-            $result = social_update_profile($socialUser, $_POST);
+            $result = social_update_profile($socialUser, $_POST, $_FILES);
         } catch (Throwable $exception) {
             error_log('[social profile] ' . $exception->getMessage());
             $result = ['errors' => ['Profil kaydedilemedi. Depolama izinlerini kontrol edin.'], 'profile' => $profile];
@@ -69,6 +69,10 @@ $posts = $result['items'];
 $socialStates = social_post_states(array_map(static fn(array $post): int => (int)$post['id'], $posts), $socialUser);
 $recentComments = $canViewContent ? social_user_comments($profileId, $socialUser, 8) : [];
 $awardStats = $canViewContent ? social_user_award_stats($profileId) : ['count' => 0, 'total' => 0];
+$forumStats = $canViewContent ? social_user_forum_stats($profileId) : ['solutions' => 0, 'gg_received' => 0, 'views' => 0];
+$activityScore = (int)$profile['post_count'] * 5 + (int)$profile['comment_count'] * 2 + (int)($forumStats['solutions'] ?? 0) * 10 + (int)($forumStats['gg_received'] ?? 0);
+$dmCheck = (!$isOwn && $socialUser && $canViewContent) ? social_dm_can_message($socialUser, $profileId) : ['errors' => ['Mesaj kullanılamıyor.']];
+$canSendDm = empty($dmCheck['errors']);
 $followers = $canViewContent ? social_profiles_by_ids(array_slice($targetFollows['followers'], 0, 12)) : [];
 $following = $canViewContent ? social_profiles_by_ids(array_slice($targetFollows['following'], 0, 12)) : [];
 $returnUrl = 'profil.php?kullanici=' . rawurlencode((string)$profile['username']);
@@ -78,7 +82,20 @@ if ($profileForm === null) {
         'bio' => (string)$profile['bio'],
         'platforms' => implode(', ', (array)$profile['platforms']),
         'favorite_games' => implode(', ', (array)$profile['favorite_games']),
+        'signature' => (string)($profile['signature'] ?? ''),
         'show_balance' => !empty($profile['show_balance']),
+        'show_online' => !isset($profile['show_online']) || !empty($profile['show_online']),
+        'dm_policy' => (string)($profile['dm_policy'] ?? 'everyone'),
+        'notify_messages' => social_notification_prefs($profile)['messages'],
+        'notify_mentions' => social_notification_prefs($profile)['mentions'],
+        'notify_follows' => social_notification_prefs($profile)['follows'],
+        'notify_comments' => social_notification_prefs($profile)['comments'],
+        'notify_replies' => social_notification_prefs($profile)['replies'],
+        'notify_watching' => social_notification_prefs($profile)['watching'],
+        'notify_awards' => social_notification_prefs($profile)['awards'],
+        'notify_solutions' => social_notification_prefs($profile)['solutions'],
+        'notify_auto_watch' => social_notification_prefs($profile)['auto_watch'],
+        'notify_events' => social_notification_prefs($profile)['events'],
     ];
 }
 
@@ -106,6 +123,8 @@ include __DIR__ . '/../header.php';
                 <p class="eyebrow">DG Social Profili</p>
                 <h1><?= e($profile['display_name']) ?></h1>
                 <p class="social-username">@<?= e($profile['username']) ?> · Katılım: <?= e(date('d.m.Y', (int)$profile['joined_at'])) ?></p>
+                <p class="social-presence-line"><?= social_presence_html($profile, $socialUser) ?></p>
+                <?php if (trim((string)($profile['signature'] ?? '')) !== ''): ?><div class="social-profile-signature"><?= social_render_text((string)$profile['signature']) ?></div><?php endif; ?>
                 <?php if ($badges || (int)$awardStats['count'] > 0): ?>
                     <div class="social-badges">
                         <?php foreach ($badges as $badge): ?><span><?= e($badge) ?></span><?php endforeach; ?>
@@ -117,6 +136,8 @@ include __DIR__ . '/../header.php';
         <div class="social-profile-actions">
             <?php if ($isOwn): ?>
                 <a class="btn btn-primary social-small-btn" href="#profil-duzenle">Profili düzenle</a>
+                <a class="btn btn-ghost social-small-btn" href="mesajlar.php">Özel mesajlarım</a>
+                <a class="btn btn-ghost social-small-btn" href="sohbet.php">Canlı sohbet</a>
                 <a class="btn btn-ghost social-small-btn" href="yeni.php">Yeni gönderi</a>
             <?php elseif ($socialUser): ?>
                 <?php if ($viewerBlockedTarget): ?>
@@ -135,6 +156,12 @@ include __DIR__ . '/../header.php';
                         <input type="hidden" name="return" value="<?= e($returnUrl) ?>">
                         <button class="btn <?= $isFollowing ? 'btn-ghost' : 'btn-primary' ?> social-small-btn" type="submit" aria-pressed="<?= $isFollowing ? 'true' : 'false' ?>"><?= $isFollowing ? 'Takip ediliyor' : 'Takip et' ?></button>
                     </form>
+                    <?php if ($canSendDm): ?>
+                        <a class="btn btn-ghost social-small-btn" href="<?= e(social_message_url($profile)) ?>">Mesaj gönder</a>
+                    <?php else: ?>
+                        <span class="social-action-note" title="<?= e(implode(' ', (array)$dmCheck['errors'])) ?>">Mesaj kapalı</span>
+                    <?php endif; ?>
+                    <?= social_generic_report_form('profile', $profileId, $returnUrl) ?>
                     <form method="post" action="aksiyon.php" data-confirm="Bu kullanıcıyı engellemek istiyor musun?">
                         <?= csrf_field() ?>
                         <input type="hidden" name="islem" value="engelle">
@@ -175,6 +202,10 @@ include __DIR__ . '/../header.php';
                         <div><dt>Yorum</dt><dd><?= (int)$profile['comment_count'] ?></dd></div>
                         <div><dt>Takipçi</dt><dd><?= (int)$profile['follower_count'] ?></dd></div>
                         <div><dt>Takip</dt><dd><?= (int)$profile['following_count'] ?></dd></div>
+                        <div><dt>Kabul edilen çözüm</dt><dd><?= (int)($forumStats['solutions'] ?? 0) ?></dd></div>
+                        <div><dt>Alınan GG</dt><dd><?= number_format((int)($forumStats['gg_received'] ?? 0), 0, ',', '.') ?></dd></div>
+                        <div><dt>Konu görüntülenme</dt><dd><?= number_format((int)($forumStats['views'] ?? 0), 0, ',', '.') ?></dd></div>
+                        <div><dt>Forum aktivite puanı</dt><dd><?= number_format($activityScore, 0, ',', '.') ?></dd></div>
                         <?php if ((int)$awardStats['count'] > 0): ?>
                             <div><dt>Editör ödülleri</dt><dd><?= (int)$awardStats['count'] ?> · +<?= number_format((int)$awardStats['total'], 0, ',', '.') ?> D-Coin</dd></div>
                         <?php endif; ?>
@@ -194,7 +225,7 @@ include __DIR__ . '/../header.php';
 
                 <?php if ($followers): ?>
                     <section class="social-panel">
-                        <h2>Takipçiler</h2>
+                        <h2>Takipçiler <span class="social-heading-count"><?= (int)$profile['follower_count'] ?></span></h2>
                         <div class="social-user-list">
                             <?php foreach ($followers as $follower): ?>
                                 <a href="<?= e(social_profile_url($follower)) ?>"><?= social_avatar_html($follower) ?><span><strong><?= e($follower['display_name']) ?></strong><small>@<?= e($follower['username']) ?></small></span></a>
@@ -205,7 +236,7 @@ include __DIR__ . '/../header.php';
 
                 <?php if ($following): ?>
                     <section class="social-panel">
-                        <h2>Takip ettikleri</h2>
+                        <h2>Takip ettikleri <span class="social-heading-count"><?= (int)$profile['following_count'] ?></span></h2>
                         <div class="social-user-list">
                             <?php foreach ($following as $followed): ?>
                                 <a href="<?= e(social_profile_url($followed)) ?>"><?= social_avatar_html($followed) ?><span><strong><?= e($followed['display_name']) ?></strong><small>@<?= e($followed['username']) ?></small></span></a>
@@ -230,6 +261,36 @@ include __DIR__ . '/../header.php';
                             </select>
                             <button class="btn btn-ghost social-small-btn" type="submit">Güncelle</button>
                         </form>
+                        <form method="post" action="aksiyon.php" class="social-admin-warning">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="islem" value="uyari_ver">
+                            <input type="hidden" name="target_id" value="<?= $profileId ?>">
+                            <input type="hidden" name="return" value="<?= e($returnUrl . '#yonetici-araclari') ?>">
+                            <div class="field">
+                                <label for="warning-reason">Uyarı / susturma sebebi</label>
+                                <textarea id="warning-reason" name="reason" maxlength="500" rows="3" required placeholder="Kullanıcıya bildirilecek açıklama"></textarea>
+                            </div>
+                            <div class="field">
+                                <label for="warning-days">Süre</label>
+                                <select id="warning-days" name="mute_days">
+                                    <option value="0">Yalnızca uyarı</option>
+                                    <option value="1">1 gün sustur</option>
+                                    <option value="7">7 gün sustur</option>
+                                    <option value="30">30 gün sustur</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-ghost social-small-btn" type="submit">Uyarıyı gönder</button>
+                        </form>
+                        <?php if ((int)($profile['muted_until'] ?? 0) > time()): ?>
+                            <form method="post" action="aksiyon.php">
+                                <?= csrf_field() ?>
+                                <input type="hidden" name="islem" value="sustur_kaldir">
+                                <input type="hidden" name="target_id" value="<?= $profileId ?>">
+                                <input type="hidden" name="return" value="<?= e($returnUrl . '#yonetici-araclari') ?>">
+                                <p class="social-action-note">Susturma: <?= e(social_format_date((int)$profile['muted_until'])) ?> tarihine kadar</p>
+                                <button class="btn btn-primary social-small-btn" type="submit">Susturmayı kaldır</button>
+                            </form>
+                        <?php endif; ?>
                         <p class="muted">Kullanıcıyı tamamen engellemek için yönetim panelindeki Kullanıcılar bölümünü kullan.</p>
                     </section>
                 <?php endif; ?>
@@ -242,17 +303,35 @@ include __DIR__ . '/../header.php';
                         <?php if ($profileErrors): ?>
                             <div class="social-alert is-error"><ul><?php foreach ($profileErrors as $error): ?><li><?= e($error) ?></li><?php endforeach; ?></ul></div>
                         <?php endif; ?>
-                        <form method="post">
+                        <form method="post" enctype="multipart/form-data">
                             <?= csrf_field() ?>
                             <input type="hidden" name="social_action" value="profile_update">
+                            <input type="hidden" name="settings_present" value="1">
                             <div class="field">
                                 <label for="profile-display">Görünen ad *</label>
                                 <input id="profile-display" type="text" name="display_name" required maxlength="50" value="<?= e($profileForm['display_name'] ?? '') ?>">
+                            </div>
+                            <div class="field social-avatar-editor">
+                                <label for="profile-avatar">Profil fotoğrafı</label>
+                                <div class="social-avatar-editor-row">
+                                    <?= social_avatar_html($profile, 'is-large') ?>
+                                    <div>
+                                        <input id="profile-avatar" type="file" name="avatar" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp">
+                                        <p class="form-note">JPG, PNG veya WebP; kareye kırpılır, en fazla 3 MB.</p>
+                                        <label class="social-check"><input type="checkbox" name="remove_avatar" value="1"> Mevcut fotoğrafı kaldır ve baş harf avatarı kullan</label>
+                                    </div>
+                                </div>
                             </div>
                             <div class="field">
                                 <label for="profile-bio">Biyografi</label>
                                 <textarea id="profile-bio" name="bio" maxlength="500" rows="4" data-character-count><?= e($profileForm['bio'] ?? '') ?></textarea>
                                 <div class="social-form-meta"><span>Oyuncu kimliğini kısaca anlat.</span><span data-count-for="profile-bio">0 / 500</span></div>
+                            </div>
+                            <div class="field">
+                                <label for="profile-signature">Forum imzası</label>
+                                <?= social_editor_toolbar_html('profile-signature') ?>
+                                <textarea id="profile-signature" name="signature" maxlength="240" rows="3" data-character-count placeholder="Kısa bir not, oynadığın platform veya ekip aradığın oyun"><?= e($profileForm['signature'] ?? '') ?></textarea>
+                                <div class="social-form-meta"><span>Yorumlarının altında ve profilinde görünür.</span><span data-count-for="profile-signature">0 / 240</span></div>
                             </div>
                             <div class="social-form-grid">
                                 <div class="field">
@@ -264,7 +343,43 @@ include __DIR__ . '/../header.php';
                                     <input id="profile-games" type="text" name="favorite_games" value="<?= e($profileForm['favorite_games'] ?? '') ?>" placeholder="Oyunları virgülle ayır">
                                 </div>
                             </div>
-                            <label class="social-check"><input type="checkbox" name="show_balance" value="1"<?= !empty($profileForm['show_balance']) ? ' checked' : '' ?>> D-Coin bakiyemi profilimde göster</label>
+                            <fieldset class="social-settings-group">
+                                <legend>Gizlilik ve özel mesaj</legend>
+                                <label class="social-check"><input type="checkbox" name="show_balance" value="1"<?= !empty($profileForm['show_balance']) ? ' checked' : '' ?>> D-Coin bakiyemi profilimde göster</label>
+                                <label class="social-check"><input type="checkbox" name="show_online" value="1"<?= !isset($profileForm['show_online']) || !empty($profileForm['show_online']) ? ' checked' : '' ?>> Çevrimiçi durumumu göster</label>
+                                <div class="field">
+                                    <label for="profile-dm-policy">Bana kim mesaj gönderebilir?</label>
+                                    <select id="profile-dm-policy" name="dm_policy">
+                                        <option value="everyone"<?= ($profileForm['dm_policy'] ?? 'everyone') === 'everyone' ? ' selected' : '' ?>>Herkes (yeni üyeler istek olarak gelir)</option>
+                                        <option value="following"<?= ($profileForm['dm_policy'] ?? '') === 'following' ? ' selected' : '' ?>>Yalnızca takip ettiğim kişiler</option>
+                                        <option value="nobody"<?= ($profileForm['dm_policy'] ?? '') === 'nobody' ? ' selected' : '' ?>>Hiç kimse</option>
+                                    </select>
+                                </div>
+                            </fieldset>
+                            <fieldset class="social-settings-group">
+                                <legend>Bildirim tercihlerim</legend>
+                                <?php
+                                $profileNotifLabels = [
+                                    'comments' => 'Gönderilerime gelen yorumlar',
+                                    'replies' => 'Yorumlarıma gelen cevaplar',
+                                    'mentions' => 'Bahsetmeler',
+                                    'follows' => 'Yeni takipçiler',
+                                    'events' => 'Etkinlik ve katılım hareketleri',
+                                    'awards' => 'Editör Ödülleri',
+                                    'messages' => 'Yeni özel mesajlar',
+                                    'watching' => 'İzlediğim konu ve kategorilerdeki hareketler',
+                                    'solutions' => 'Çözüm seçimleri',
+                                    'auto_watch' => 'Yorum yaptığım konuları otomatik izle',
+                                ];
+                                $profileNotifPrefs = social_notification_prefs($profile);
+                                foreach ($profileNotifLabels as $notifKey => $notifLabel):
+                                    $notifField = 'notify_' . $notifKey;
+                                    $notifChecked = array_key_exists($notifField, (array)$profileForm) ? !empty($profileForm[$notifField]) : !empty($profileNotifPrefs[$notifKey]);
+                                ?>
+                                    <label class="social-check"><input type="checkbox" name="<?= e($notifField) ?>" value="1"<?= $notifChecked ? ' checked' : '' ?>> <?= e($notifLabel) ?></label>
+                                <?php endforeach; ?>
+                                <p class="form-note">Resmî duyurular ve güvenlik bildirimleri her zaman gösterilir.</p>
+                            </fieldset>
                             <button class="btn btn-primary" type="submit">Profili kaydet</button>
                         </form>
                     </section>

@@ -4,20 +4,45 @@ require_once __DIR__ . '/_common.php';
 $topicSlug = social_slugify((string)($_GET['konu'] ?? ''));
 $activeTopic = $topicSlug !== '' ? ($socialTopicMap[$topicSlug] ?? null) : null;
 $feed = (string)($_GET['akis'] ?? 'kesfet');
-if (!in_array($feed, ['kesfet', 'takip', 'kaydedilenler'], true)) $feed = 'kesfet';
+if (!in_array($feed, ['kesfet', 'takip', 'takip-konular', 'izlediklerim', 'okunmamis', 'kaydedilenler'], true)) $feed = 'kesfet';
 $sort = (string)($_GET['sirala'] ?? 'aktivite');
-$sortMap = ['aktivite' => 'activity', 'yeni' => 'new', 'populer' => 'popular'];
+$sortMap = ['aktivite' => 'activity', 'yeni' => 'new', 'populer' => 'popular', 'yorum' => 'comments', 'goruntulenme' => 'views', 'gg' => 'gg'];
 if (!isset($sortMap[$sort])) $sort = 'aktivite';
 $query = trim((string)($_GET['q'] ?? ''));
+$prefix = social_slugify((string)($_GET['tur'] ?? ''));
+if ($prefix !== '' && !isset(social_post_prefixes()[$prefix])) $prefix = '';
+$solutionFilter = (string)($_GET['cozum'] ?? '');
+if (!in_array($solutionFilter, ['', 'cozuldu', 'acik'], true)) $solutionFilter = '';
+$feature = social_slugify((string)($_GET['ozellik'] ?? ''));
+if (!in_array($feature, ['', 'anket', 'etkinlik', 'odul', 'gorsel', 'yorumsuz', 'cozuldu'], true)) $feature = '';
+$period = (string)($_GET['donem'] ?? '');
+if (!in_array($period, ['', '1', '7', '30'], true)) $period = '';
+$authorQuery = trim((string)($_GET['yazar'] ?? ''));
+$authorProfileFilter = $authorQuery !== '' ? social_profile_by_username(ltrim($authorQuery, '@'), false) : null;
+$authorIdFilter = $authorProfileFilter ? (int)$authorProfileFilter['user_id'] : null;
+$authorNotFound = $authorQuery !== '' && !$authorProfileFilter;
 $page = max(1, (int)($_GET['sayfa'] ?? 1));
-$needsLogin = !$socialUser && in_array($feed, ['takip', 'kaydedilenler'], true);
+$needsLogin = !$socialUser && in_array($feed, ['takip', 'takip-konular', 'izlediklerim', 'okunmamis', 'kaydedilenler'], true);
+$internalFeed = match ($feed) {
+    'takip' => 'following',
+    'takip-konular' => 'watched_topics',
+    'izlediklerim' => 'watched',
+    'okunmamis' => 'unread',
+    'kaydedilenler' => 'saved',
+    default => 'latest',
+};
 
-if ($needsLogin || ($topicSlug !== '' && !$activeTopic)) {
+if ($needsLogin || $authorNotFound || ($topicSlug !== '' && !$activeTopic)) {
     $result = ['items' => [], 'total' => 0, 'page' => $page, 'pages' => 1, 'per_page' => 15];
 } else {
     $result = social_list_posts([
         'topic' => $topicSlug,
-        'feed' => $feed === 'takip' ? 'following' : ($feed === 'kaydedilenler' ? 'saved' : 'latest'),
+        'feed' => $internalFeed,
+        'author_id' => $authorIdFilter,
+        'prefix' => $prefix,
+        'solved' => $solutionFilter === '' ? null : $solutionFilter === 'cozuldu',
+        'feature' => $feature,
+        'since_days' => $period === '' ? 0 : (int)$period,
         'q' => $query,
         'sort' => $sortMap[$sort],
         'page' => $page,
@@ -27,22 +52,28 @@ if ($needsLogin || ($topicSlug !== '' && !$activeTopic)) {
 $posts = $result['items'];
 $socialStates = social_post_states(array_map(static fn(array $post): int => (int)$post['id'], $posts), $socialUser);
 $matchedProfiles = $query !== '' ? social_search_profiles($query, $socialUser, 6) : [];
+$matchedComments = $query !== '' ? social_search_comments($query, $socialUser, 8) : [];
 $stats = social_stats(!empty($socialUser['is_admin']));
 $upcomingEvents = social_upcoming_events($socialUser, 3);
 $weeklyHighlights = social_weekly_highlights($socialUser, 3);
 $suggestedProfiles = social_suggested_profiles($socialUser, 4);
-$topicCounts = [];
-foreach ($socialTopics as $topic) {
-    $topicCounts[(string)$topic['slug']] = social_list_posts([
-        'topic' => (string)$topic['slug'],
-        'per_page' => 1,
-    ], null)['total'];
-}
+$topicBoardStats = social_topic_board_stats($socialUser);
+$topicStatsMap = [];
+foreach ($topicBoardStats as $topicStat) $topicStatsMap[(string)$topicStat['slug']] = $topicStat;
+$chatPreview = (array)(social_chat_messages('genel', $socialUser, 0, 5)['messages'] ?? []);
+$onlineProfiles = social_online_users($socialUser, 300, 5);
+$newestMembers = social_member_directory(['sort' => 'newest', 'limit' => 3], $socialUser);
+$hasAdvancedFilters = $prefix !== '' || $solutionFilter !== '' || $feature !== '' || $period !== '' || $authorQuery !== '';
 $baseParams = array_filter([
     'konu' => $topicSlug,
     'akis' => $feed !== 'kesfet' ? $feed : '',
     'sirala' => $sort !== 'aktivite' ? $sort : '',
     'q' => $query,
+    'tur' => $prefix,
+    'cozum' => $solutionFilter,
+    'ozellik' => $feature,
+    'donem' => $period,
+    'yazar' => $authorQuery,
 ], static fn($value): bool => $value !== '');
 
 if ($topicSlug !== '' && !$activeTopic && !headers_sent()) http_response_code(404);
@@ -51,12 +82,13 @@ $page_meta_desc = $activeTopic && trim((string)$activeTopic['description']) !== 
     ? trim((string)$activeTopic['description'])
     : 'DeviceGame oyuncularının forum ve sosyal akış alanı. Oyun önerileri, oyun arkadaşları, rehberler ve stüdyo duyuruları.';
 $page_canonical = false;
-if ($activeTopic && $feed === 'kesfet' && $query === '' && $page <= 1) {
+if ($activeTopic && $feed === 'kesfet' && $query === '' && !$hasAdvancedFilters && $page <= 1) {
     $page_canonical = 'sosyal/index.php?konu=' . rawurlencode($topicSlug);
-} elseif ($topicSlug === '' && $feed === 'kesfet' && $query === '' && $page <= 1) {
+} elseif ($topicSlug === '' && $feed === 'kesfet' && $query === '' && !$hasAdvancedFilters && $page <= 1) {
     $page_canonical = 'sosyal/index.php';
 }
-$page_robots = ($topicSlug !== '' && !$activeTopic) || $query !== '' || $feed !== 'kesfet' || $page > 1 ? 'noindex,follow' : '';
+$page_robots = ($topicSlug !== '' && !$activeTopic) || $query !== '' || $hasAdvancedFilters || $feed !== 'kesfet' || $page > 1 ? 'noindex,follow' : '';
+$page_rss_url = 'sosyal/rss.php' . ($activeTopic ? '?konu=' . rawurlencode($topicSlug) : '');
 $page_og_type = 'website';
 $page_og_title = $page_title;
 $page_og_desc = $page_meta_desc;
@@ -65,17 +97,25 @@ $body_class = 'shop-page social-page';
 include __DIR__ . '/../header.php';
 ?>
 
-<section class="social-shell">
+<section class="social-shell" data-social-feed-root>
     <header class="social-hero">
         <div>
-            <p class="eyebrow">DG Social · Beta topluluğu</p>
-            <h1><?= $activeTopic ? e($activeTopic['name']) . '.' : 'Oyunu birlikte konuşalım.' ?></h1>
-            <p><?= e($activeTopic ? ($activeTopic['description'] ?: 'Bu konudaki gönderiler ve tartışmalar.') : 'Oyun önerileri paylaş, ekip arkadaşı bul, rehberler yaz ve DeviceGame projelerini toplulukla birlikte takip et.') ?></p>
+            <p class="eyebrow">DG Social · Forum topluluğu</p>
+            <h1 data-feed-hero-title><?= $activeTopic ? e($activeTopic['name']) . '.' : 'Oyunu birlikte konuşalım.' ?></h1>
+            <p data-feed-hero-text><?= e($activeTopic ? ($activeTopic['description'] ?: 'Bu konudaki gönderiler ve tartışmalar.') : 'Oyun önerileri paylaş, ekip arkadaşı bul, rehberler yaz ve DeviceGame projelerini toplulukla birlikte takip et.') ?></p>
+            <div class="social-hero-actions">
+                <a class="btn btn-ghost social-small-btn" href="konular.php">Forum panosu</a>
+                <a class="btn btn-ghost social-small-btn" href="sohbet.php">Canlı sohbet</a>
+                <a class="btn btn-ghost social-small-btn" href="uyeler.php">Üyeler</a>
+            </div>
         </div>
         <div class="social-hero-stats" aria-label="Topluluk istatistikleri">
             <div><strong><?= number_format((int)$stats['posts'], 0, ',', '.') ?></strong><span>gönderi</span></div>
+            <div><strong><?= number_format((int)($stats['comments'] ?? 0), 0, ',', '.') ?></strong><span>yorum</span></div>
             <div><strong><?= number_format((int)$stats['members'], 0, ',', '.') ?></strong><span>üye</span></div>
             <div><strong><?= (int)$stats['topics'] ?></strong><span>konu</span></div>
+            <div><strong><?= number_format((int)($stats['views'] ?? 0), 0, ',', '.') ?></strong><span>görüntülenme</span></div>
+            <div><strong><?= (int)($stats['online'] ?? 0) ?></strong><span>çevrimiçi</span></div>
         </div>
     </header>
 
@@ -87,20 +127,33 @@ include __DIR__ . '/../header.php';
 
     <div class="social-layout">
         <aside class="social-sidebar social-sidebar-left">
-            <section class="social-panel">
+            <section class="social-panel" data-feed-topic-panel>
                 <div class="social-panel-head">
                     <h2>Konular</h2>
-                    <?php if ($topicSlug !== ''): ?><a href="<?= e(social_feed_url(array_diff_key($baseParams, ['konu' => true]))) ?>">Temizle</a><?php endif; ?>
+                    <?php if ($topicSlug !== ''): ?><a href="<?= e(social_feed_url(array_diff_key($baseParams, ['konu' => true]))) ?>" data-feed-link>Temizle</a><?php endif; ?>
                 </div>
                 <nav class="social-topic-list" aria-label="Forum konuları">
                     <a href="<?= e(social_feed_url(array_diff_key($baseParams, ['konu' => true]))) ?>"<?= $topicSlug === '' ? ' aria-current="true"' : '' ?>><span>🌐 Tümü</span><small><?= (int)$stats['posts'] ?></small></a>
                     <?php foreach ($socialTopics as $topic): ?>
-                        <a href="<?= e(social_feed_url(array_merge($baseParams, ['konu' => (string)$topic['slug']]))) ?>"<?= $topicSlug === (string)$topic['slug'] ? ' aria-current="true"' : '' ?>>
-                            <span><?= e($topic['icon']) ?> <?= e($topic['name']) ?></span>
-                            <small><?= (int)($topicCounts[(string)$topic['slug']] ?? 0) ?></small>
-                        </a>
+                        <?php $topicStat = $topicStatsMap[(string)$topic['slug']] ?? []; ?>
+                        <div class="social-topic-row<?= $topicSlug === (string)$topic['slug'] ? ' is-active' : '' ?>">
+                            <a href="<?= e(social_feed_url(array_merge($baseParams, ['konu' => (string)$topic['slug']]))) ?>"<?= $topicSlug === (string)$topic['slug'] ? ' aria-current="true"' : '' ?>>
+                                <span><?= e($topic['icon']) ?> <?= e($topic['name']) ?></span>
+                                <small><?= (int)($topicStat['post_count'] ?? 0) ?><?= (int)($topicStat['unread_count'] ?? 0) > 0 ? ' · ' . (int)$topicStat['unread_count'] . ' yeni' : '' ?></small>
+                            </a>
+                            <?php if ($socialUser): ?>
+                                <form method="post" action="aksiyon.php" data-social-ajax="topic-watch">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="islem" value="konu_takip">
+                                    <input type="hidden" name="topic_slug" value="<?= e($topic['slug']) ?>">
+                                    <input type="hidden" name="return" value="<?= e(social_current_return_url()) ?>">
+                                    <button type="submit" class="social-topic-watch<?= !empty($topicStat['is_watched']) ? ' is-active' : '' ?>" aria-pressed="<?= !empty($topicStat['is_watched']) ? 'true' : 'false' ?>" data-label-active="Takipte" data-label-inactive="Takip" title="Konuyu takip et"><?= !empty($topicStat['is_watched']) ? 'Takipte' : 'Takip' ?></button>
+                                </form>
+                            <?php endif; ?>
+                        </div>
                     <?php endforeach; ?>
                 </nav>
+                <a class="text-link" href="konular.php">Forum panosunda tüm kategorileri gör</a>
             </section>
 
             <section class="social-panel social-rules">
@@ -136,21 +189,94 @@ include __DIR__ . '/../header.php';
                 <nav class="social-tabs" aria-label="Akış türü">
                     <a href="<?= e(social_feed_url(array_merge($baseParams, ['akis' => '']))) ?>"<?= $feed === 'kesfet' ? ' aria-current="true"' : '' ?>>Keşfet</a>
                     <a href="<?= e(social_feed_url(array_merge($baseParams, ['akis' => 'takip']))) ?>"<?= $feed === 'takip' ? ' aria-current="true"' : '' ?>>Takip ettiklerim</a>
+                    <a href="<?= e(social_feed_url(array_merge($baseParams, ['akis' => 'takip-konular']))) ?>"<?= $feed === 'takip-konular' ? ' aria-current="true"' : '' ?>>Takip konularım</a>
+                    <a href="<?= e(social_feed_url(array_merge($baseParams, ['akis' => 'izlediklerim']))) ?>"<?= $feed === 'izlediklerim' ? ' aria-current="true"' : '' ?>>İzlediklerim</a>
+                    <a href="<?= e(social_feed_url(array_merge($baseParams, ['akis' => 'okunmamis']))) ?>"<?= $feed === 'okunmamis' ? ' aria-current="true"' : '' ?>>Okunmamış</a>
                     <a href="<?= e(social_feed_url(array_merge($baseParams, ['akis' => 'kaydedilenler']))) ?>"<?= $feed === 'kaydedilenler' ? ' aria-current="true"' : '' ?>>Kaydedilenler</a>
                 </nav>
-                <form method="get" action="index.php#akis" class="social-search" role="search">
+                <form method="get" action="index.php" class="social-search" role="search" data-feed-form>
                     <?php if ($topicSlug !== ''): ?><input type="hidden" name="konu" value="<?= e($topicSlug) ?>"><?php endif; ?>
                     <?php if ($feed !== 'kesfet'): ?><input type="hidden" name="akis" value="<?= e($feed) ?>"><?php endif; ?>
-                    <label class="social-sr-only" for="social-q">Gönderi veya kullanıcı ara</label>
-                    <input id="social-q" type="search" name="q" value="<?= e($query) ?>" placeholder="Gönderi, etiket veya kullanıcı ara">
+                    <?php foreach (['tur' => $prefix, 'cozum' => $solutionFilter, 'ozellik' => $feature, 'donem' => $period, 'yazar' => $authorQuery] as $hiddenName => $hiddenValue): ?>
+                        <?php if ((string)$hiddenValue !== ''): ?><input type="hidden" name="<?= e($hiddenName) ?>" value="<?= e($hiddenValue) ?>"><?php endif; ?>
+                    <?php endforeach; ?>
+                    <label class="social-sr-only" for="social-q">Gönderi, yorum veya kullanıcı ara</label>
+                    <input id="social-q" type="search" name="q" value="<?= e($query) ?>" placeholder="Gönderi, yorum, etiket veya kullanıcı ara">
                     <label class="social-sr-only" for="social-sort">Sıralama</label>
                     <select id="social-sort" name="sirala">
                         <option value="aktivite"<?= $sort === 'aktivite' ? ' selected' : '' ?>>Son aktivite</option>
                         <option value="yeni"<?= $sort === 'yeni' ? ' selected' : '' ?>>En yeni</option>
                         <option value="populer"<?= $sort === 'populer' ? ' selected' : '' ?>>Popüler</option>
+                        <option value="yorum"<?= $sort === 'yorum' ? ' selected' : '' ?>>En çok yorum</option>
+                        <option value="goruntulenme"<?= $sort === 'goruntulenme' ? ' selected' : '' ?>>En çok görüntülenen</option>
+                        <option value="gg"<?= $sort === 'gg' ? ' selected' : '' ?>>En çok GG</option>
                     </select>
                     <button type="submit" class="btn btn-ghost social-small-btn">Ara</button>
                 </form>
+            </div>
+
+            <details class="social-advanced-panel"<?= $hasAdvancedFilters ? ' open' : '' ?>>
+                <summary>Gelişmiş arama ve filtreler<?= $hasAdvancedFilters ? ' · aktif' : '' ?></summary>
+                <form method="get" action="index.php" class="social-advanced-search" data-feed-form>
+                    <?php if ($topicSlug !== ''): ?><input type="hidden" name="konu" value="<?= e($topicSlug) ?>"><?php endif; ?>
+                    <?php if ($feed !== 'kesfet'): ?><input type="hidden" name="akis" value="<?= e($feed) ?>"><?php endif; ?>
+                    <?php if ($query !== ''): ?><input type="hidden" name="q" value="<?= e($query) ?>"><?php endif; ?>
+                    <?php if ($sort !== 'aktivite'): ?><input type="hidden" name="sirala" value="<?= e($sort) ?>"><?php endif; ?>
+                    <label>Konu türü
+                        <select name="tur">
+                            <option value="">Tümü</option>
+                            <?php foreach (social_post_prefixes() as $prefixSlug => $prefixLabel): ?>
+                                <option value="<?= e($prefixSlug) ?>"<?= $prefix === $prefixSlug ? ' selected' : '' ?>><?= e($prefixLabel) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                    <label>Çözüm durumu
+                        <select name="cozum">
+                            <option value=""<?= $solutionFilter === '' ? ' selected' : '' ?>>Tümü</option>
+                            <option value="cozuldu"<?= $solutionFilter === 'cozuldu' ? ' selected' : '' ?>>Çözüldü</option>
+                            <option value="acik"<?= $solutionFilter === 'acik' ? ' selected' : '' ?>>Çözüm bekliyor</option>
+                        </select>
+                    </label>
+                    <label>İçerik özelliği
+                        <select name="ozellik">
+                            <option value=""<?= $feature === '' ? ' selected' : '' ?>>Tümü</option>
+                            <option value="anket"<?= $feature === 'anket' ? ' selected' : '' ?>>Anketli</option>
+                            <option value="etkinlik"<?= $feature === 'etkinlik' ? ' selected' : '' ?>>Etkinlik</option>
+                            <option value="odul"<?= $feature === 'odul' ? ' selected' : '' ?>>Editör Ödüllü</option>
+                            <option value="gorsel"<?= $feature === 'gorsel' ? ' selected' : '' ?>>Görselli</option>
+                            <option value="yorumsuz"<?= $feature === 'yorumsuz' ? ' selected' : '' ?>>Yorumsuz</option>
+                        </select>
+                    </label>
+                    <label>Dönem
+                        <select name="donem">
+                            <option value=""<?= $period === '' ? ' selected' : '' ?>>Tüm zamanlar</option>
+                            <option value="1"<?= $period === '1' ? ' selected' : '' ?>>Bugün</option>
+                            <option value="7"<?= $period === '7' ? ' selected' : '' ?>>7 gün</option>
+                            <option value="30"<?= $period === '30' ? ' selected' : '' ?>>30 gün</option>
+                        </select>
+                    </label>
+                    <label>Yazar
+                        <input type="search" name="yazar" value="<?= e($authorQuery) ?>" placeholder="@kullaniciadi">
+                    </label>
+                    <div class="social-advanced-actions">
+                        <button class="btn btn-primary social-small-btn" type="submit">Filtrele</button>
+                        <?php if ($hasAdvancedFilters): ?>
+                            <a class="btn btn-ghost social-small-btn" href="<?= e(social_feed_url(array_diff_key($baseParams, ['tur' => true, 'cozum' => true, 'ozellik' => true, 'donem' => true, 'yazar' => true]))) ?>" data-feed-link>Filtreleri temizle</a>
+                        <?php endif; ?>
+                    </div>
+                </form>
+            </details>
+
+            <div class="social-feed-summary">
+                <span><?= number_format((int)$result['total'], 0, ',', '.') ?> konu<?= $authorNotFound ? ' · yazar bulunamadı' : '' ?></span>
+                <?php if ($socialUser): ?>
+                    <form method="post" action="aksiyon.php" data-social-ajax="mark-read">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="islem" value="okundu_tumu">
+                        <input type="hidden" name="return" value="<?= e(social_current_return_url()) ?>">
+                        <button class="social-text-button" type="submit">Tümünü okundu işaretle</button>
+                    </form>
+                <?php endif; ?>
             </div>
 
             <?php if ($matchedProfiles): ?>
@@ -161,6 +287,21 @@ include __DIR__ . '/../header.php';
                             <a href="<?= e(social_profile_url($profile)) ?>">
                                 <?= social_avatar_html($profile) ?>
                                 <span><strong><?= e($profile['display_name']) ?></strong><small>@<?= e($profile['username']) ?></small></span>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                </section>
+            <?php endif; ?>
+
+            <?php if ($matchedComments): ?>
+                <section class="social-panel social-comment-results">
+                    <h2>Eşleşen yorumlar</h2>
+                    <div class="social-comment-result-list">
+                        <?php foreach ($matchedComments as $matchedComment): ?>
+                            <a href="<?= e(social_post_url((int)$matchedComment['post_id'])) ?>#yorum-<?= (int)$matchedComment['id'] ?>">
+                                <strong><?= e($matchedComment['author_display']) ?></strong>
+                                <span><?= e(social_excerpt((string)$matchedComment['body'], 180)) ?></span>
+                                <small><?= e($matchedComment['post_title']) ?> · <?= e(social_time_ago((int)$matchedComment['created_at'])) ?> önce</small>
                             </a>
                         <?php endforeach; ?>
                     </div>
@@ -215,6 +356,47 @@ include __DIR__ . '/../header.php';
                     <a class="btn btn-ghost btn-full" href="<?= e(social_login_url('sosyal/index.php')) ?>">Giriş yap</a>
                 </section>
             <?php endif; ?>
+
+            <section class="social-panel" id="canli-sohbet-onizleme">
+                <div class="social-panel-head">
+                    <h2>Canlı sohbet</h2>
+                    <a href="sohbet.php">Katıl</a>
+                </div>
+                <?php if ($chatPreview): ?>
+                    <div class="social-chat-preview">
+                        <?php foreach (array_slice($chatPreview, -4) as $chatItem): ?>
+                            <div>
+                                <strong><?= e($chatItem['author_display']) ?></strong>
+                                <span><?= e(social_excerpt((string)$chatItem['body'], 130)) ?></span>
+                                <small><?= e(social_time_ago((int)$chatItem['created_at'])) ?> önce</small>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php else: ?><p class="muted">Genel kanalda ilk mesajı sen gönder.</p><?php endif; ?>
+                <div class="social-online-summary">
+                    <strong><?= (int)($stats['online'] ?? 0) ?> kişi çevrimiçi</strong>
+                    <?php if ($onlineProfiles): ?>
+                        <span><?= e(implode(', ', array_map(static fn(array $profile): string => '@' . $profile['username'], $onlineProfiles))) ?></span>
+                    <?php endif; ?>
+                </div>
+            </section>
+
+            <section class="social-panel social-forum-stats" id="forum-istatistikleri">
+                <h2>Forum istatistikleri</h2>
+                <dl>
+                    <div><dt>Konu</dt><dd><?= number_format((int)$stats['posts'], 0, ',', '.') ?></dd></div>
+                    <div><dt>Yorum</dt><dd><?= number_format((int)($stats['comments'] ?? 0), 0, ',', '.') ?></dd></div>
+                    <div><dt>Çözüm</dt><dd><?= number_format((int)($stats['solutions'] ?? 0), 0, ',', '.') ?></dd></div>
+                    <div><dt>Görüntülenme</dt><dd><?= number_format((int)($stats['views'] ?? 0), 0, ',', '.') ?></dd></div>
+                </dl>
+                <?php if ($newestMembers): ?>
+                    <p class="muted">En yeni üye: <a href="<?= e(social_profile_url($newestMembers[0])) ?>">@<?= e($newestMembers[0]['username']) ?></a></p>
+                <?php endif; ?>
+                <div class="social-panel-links">
+                    <a class="text-link" href="uyeler.php">Üye dizini</a>
+                    <a class="text-link" href="rss.php">RSS akışı</a>
+                </div>
+            </section>
 
             <section class="social-panel" id="yaklasan-etkinlikler">
                 <div class="social-panel-head">
@@ -271,7 +453,7 @@ include __DIR__ . '/../header.php';
                 <?php if ($trendingTags): ?>
                     <div class="social-tags is-large">
                         <?php foreach ($trendingTags as $tag => $count): ?>
-                            <a href="index.php?q=<?= rawurlencode('#' . $tag) ?>#akis">#<?= e($tag) ?> <small><?= (int)$count ?></small></a>
+                            <a href="index.php?q=<?= rawurlencode('#' . $tag) ?>">#<?= e($tag) ?> <small><?= (int)$count ?></small></a>
                         <?php endforeach; ?>
                     </div>
                 <?php else: ?>

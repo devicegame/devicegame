@@ -117,6 +117,8 @@ try {
     }
 
     $addUrl('sosyal/index.php', $latestSocialTime ?: $fileTime('sosyal/index.php'), 'daily', '0.8');
+    $addUrl('sosyal/konular.php', $latestSocialTime ?: $fileTime('sosyal/konular.php'), 'daily', '0.8');
+    $addUrl('sosyal/uyeler.php', $fileTime('sosyal/uyeler.php'), 'weekly', '0.6');
     $addUrl('sosyal/etkinlikler.php', $topicTimes['etkinlikler'] ?? $latestSocialTime, 'daily', '0.7');
     $addUrl('sosyal/kurallar.php', $fileTime('sosyal/kurallar.php'), 'yearly', '0.4');
     foreach ($socialTopics as $topic) {

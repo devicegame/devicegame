@@ -69,7 +69,15 @@ if (!$post || !social_post_visible($post, $socialUser, $blockedIds)) {
 }
 
 $topic = $socialTopicMap[(string)$post['topic_slug']] ?? social_topic((string)$post['topic_slug'], false);
-$comments = social_comments($postId, $socialUser);
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+    $viewedPost = social_record_post_view($postId, $socialUser);
+    if ($viewedPost) $post = $viewedPost;
+    if ($socialUser) social_mark_post_read($socialUser, $post);
+}
+$commentSort = (string)($_GET['yorum_sira'] ?? 'eski');
+if (!in_array($commentSort, ['eski', 'yeni', 'populer'], true)) $commentSort = 'eski';
+$commentSortInternal = $commentSort === 'yeni' ? 'new' : ($commentSort === 'populer' ? 'top' : 'old');
+$comments = social_comments($postId, $socialUser, $commentSortInternal);
 $commentAuthorIds = [(int)$post['user_id']];
 foreach ($comments as $comment) {
     $commentAuthorIds[] = (int)$comment['user_id'];
@@ -96,12 +104,14 @@ if ($socialUser && !$isAuthor) {
 $relatedResult = social_list_posts(['topic' => (string)$post['topic_slug'], 'per_page' => 8], $socialUser);
 $relatedPosts = array_slice(array_values(array_filter($relatedResult['items'], static fn(array $item): bool => (int)$item['id'] !== $postId)), 0, 3);
 $relatedStates = social_post_states(array_map(static fn(array $item): int => (int)$item['id'], $relatedPosts), $socialUser);
-$returnUrl = 'gonderi.php?id=' . $postId;
+$returnUrl = 'gonderi.php?id=' . $postId . ($commentSort !== 'eski' ? '&yorum_sira=' . rawurlencode($commentSort) : '');
+$topicWatchState = $socialUser ? social_watches((int)$socialUser['id']) : ['topics' => [], 'muted_topics' => []];
+$watchingTopic = $topic && in_array((string)$topic['slug'], (array)$topicWatchState['topics'], true);
 
 function social_detail_report_form(string $type, int $targetId, int $postId, string $returnUrl): string
 {
     $html = '<details class="social-report"><summary>Şikâyet et</summary>';
-    $html .= '<form method="post" action="aksiyon.php">' . csrf_field();
+    $html .= '<form method="post" action="aksiyon.php" data-social-ajax="report">' . csrf_field();
     $html .= '<input type="hidden" name="islem" value="sikayet">';
     $html .= '<input type="hidden" name="target_type" value="' . e($type) . '">';
     $html .= '<input type="hidden" name="target_id" value="' . $targetId . '">';
@@ -124,20 +134,49 @@ function social_render_comment(array $comment, bool $isReply = false): void
     ];
     $isOwn = $socialUser && (int)$socialUser['id'] === (int)$comment['user_id'];
     ?>
-    <article id="yorum-<?= $commentId ?>" class="social-comment<?= $isReply ? ' is-reply' : '' ?>">
+    <article id="yorum-<?= $commentId ?>" class="social-comment<?= $isReply ? ' is-reply' : '' ?><?= !empty($comment['is_solution']) ? ' is-solution' : '' ?>">
         <div class="social-comment-head">
             <a class="social-author" href="<?= e(social_profile_url($profile)) ?>">
                 <?= social_avatar_html($profile) ?>
-                <span><strong><?= e($profile['display_name']) ?></strong><small>@<?= e($profile['username']) ?> · <?= e(social_time_ago((int)$comment['created_at'])) ?></small></span>
+                <span><strong><?= e($profile['display_name']) ?></strong><small>@<?= e($profile['username']) ?> · <time title="<?= e(social_format_date((int)$comment['created_at'])) ?>"><?= e(social_time_ago((int)$comment['created_at'])) ?></time></small></span>
             </a>
+            <?php if ((int)$comment['user_id'] === (int)$post['user_id']): ?><span class="social-mini-badge is-author">Konu sahibi</span><?php endif; ?>
+            <?php if (!empty($comment['is_solution'])): ?><span class="social-mini-badge is-solution" data-solution-badge>✓ Kabul edilen çözüm</span><?php endif; ?>
             <?php if ((string)$comment['status'] !== 'published'): ?><span class="social-mini-badge is-warning"><?= e(social_status_label((string)$comment['status'])) ?></span><?php endif; ?>
         </div>
         <div class="social-rich-text"><?= social_render_text((string)$comment['body']) ?></div>
-        <?php if (!empty($comment['edited_at'])): ?><p class="social-edited">Düzenlendi</p><?php endif; ?>
+        <?php if (trim((string)($profile['signature'] ?? '')) !== ''): ?><div class="social-comment-signature"><?= social_render_text((string)$profile['signature']) ?></div><?php endif; ?>
+        <?php if (!empty($comment['edited_at'])): ?><p class="social-edited">Düzenlendi · <?= e(social_format_date((int)$comment['edited_at'])) ?></p><?php endif; ?>
 
         <div class="social-comment-actions">
+            <?php if ($socialUser): ?>
+                <form method="post" action="aksiyon.php" data-social-ajax="comment-gg">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="islem" value="yorum_gg">
+                    <input type="hidden" name="post_id" value="<?= (int)$post['id'] ?>">
+                    <input type="hidden" name="comment_id" value="<?= $commentId ?>">
+                    <input type="hidden" name="return" value="<?= e($returnUrl . '#yorum-' . $commentId) ?>">
+                    <button type="submit" class="social-text-button<?= !empty($comment['viewer_gg']) ? ' is-active' : '' ?>" aria-pressed="<?= !empty($comment['viewer_gg']) ? 'true' : 'false' ?>">GG <span data-comment-gg-count><?= (int)($comment['gg_count'] ?? 0) ?></span></button>
+                </form>
+            <?php else: ?>
+                <span class="social-text-button is-static">GG <?= (int)($comment['gg_count'] ?? 0) ?></span>
+            <?php endif; ?>
+            <button type="button" class="social-text-button" data-copy-link data-copy-url="<?= e(social_post_url((int)$post['id'], $commentId)) ?>">Bağlantı</button>
+            <?php if ($socialUser && empty($post['locked'])): ?>
+                <button type="button" class="social-text-button" data-quote-button data-parent-id="<?= $isReply ? (int)$comment['parent_id'] : $commentId ?>" data-author="<?= e($profile['display_name']) ?>" data-quote="<?= e(social_excerpt((string)$comment['body'], 320)) ?>">Alıntıla</button>
+            <?php endif; ?>
             <?php if ($socialUser && !$isReply && empty($post['locked'])): ?>
                 <button type="button" class="social-text-button" data-reply-button data-parent-id="<?= $commentId ?>" data-author="@<?= e($profile['username']) ?>">Cevapla</button>
+            <?php endif; ?>
+            <?php if ($socialUser && !$isReply && ((int)$socialUser['id'] === (int)$post['user_id'] || $isAdmin) && (int)$comment['user_id'] !== (int)$post['user_id'] && (string)$comment['status'] === 'published'): ?>
+                <form method="post" action="aksiyon.php" data-social-ajax="solution">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="islem" value="cozum">
+                    <input type="hidden" name="post_id" value="<?= (int)$post['id'] ?>">
+                    <input type="hidden" name="comment_id" value="<?= $commentId ?>">
+                    <input type="hidden" name="return" value="<?= e($returnUrl . '#yorum-' . $commentId) ?>">
+                    <button type="submit" class="social-text-button<?= !empty($comment['is_solution']) ? ' is-active' : '' ?>" aria-pressed="<?= !empty($comment['is_solution']) ? 'true' : 'false' ?>" data-label-active="Çözümü kaldır" data-label-inactive="Çözüm seç"><?= !empty($comment['is_solution']) ? 'Çözümü kaldır' : 'Çözüm seç' ?></button>
+                </form>
             <?php endif; ?>
             <?php if ($socialUser && ($isOwn || $isAdmin)): ?>
                 <details class="social-inline-edit"<?= $editingCommentId === $commentId ? ' open' : '' ?>>
@@ -240,6 +279,8 @@ include __DIR__ . '/../header.php';
                 </a>
                 <div class="social-post-badges">
                     <?php if ($topic): ?><a class="social-topic-badge" href="<?= e(social_feed_url(['konu' => (string)$topic['slug']])) ?>"><?= e($topic['icon']) ?> <?= e($topic['name']) ?></a><?php endif; ?>
+                    <?= social_prefix_badge_html($post) ?>
+                    <?php if ((int)($post['solution_comment_id'] ?? 0) > 0): ?><a class="social-mini-badge is-solution" href="#yorum-<?= (int)$post['solution_comment_id'] ?>">✓ Çözüldü</a><?php endif; ?>
                     <?= social_award_badge_html($post) ?>
                     <?php if (!empty($post['poll'])): ?><span class="social-mini-badge">Anket</span><?php endif; ?>
                     <?php if (social_is_event_post($post)): ?><span class="social-mini-badge">Etkinlik</span><?php endif; ?>
@@ -249,6 +290,13 @@ include __DIR__ . '/../header.php';
             </div>
 
             <h1><?= e($post['title']) ?></h1>
+            <div class="social-post-stats is-detail" aria-label="Konu istatistikleri">
+                <span>👁 <?= number_format((int)($post['view_count'] ?? 0), 0, ',', '.') ?> görüntülenme</span>
+                <span>💬 <?= (int)$post['comment_count'] ?> yorum</span>
+                <span data-watch-wrap>🔔 <span data-watch-count><?= (int)($post['watch_count'] ?? 0) ?></span> izleyen</span>
+                <span>Son aktivite <?= e(social_time_ago((int)$post['last_activity_at'])) ?></span>
+                <?php if ($authorProfile): ?><span><?= social_presence_html($authorProfile, $socialUser) ?></span><?php endif; ?>
+            </div>
             <?php if (!empty($post['image'])): ?>
                 <figure class="social-detail-media"><img src="<?= e(social_image_url((string)$post['image'])) ?>" alt="<?= e($post['title']) ?> görseli" onerror="this.closest('figure')?.remove()"></figure>
             <?php endif; ?>
@@ -276,7 +324,7 @@ include __DIR__ . '/../header.php';
 
             <?php if (!empty($post['tags'])): ?>
                 <div class="social-tags is-large">
-                    <?php foreach ((array)$post['tags'] as $tag): ?><a href="index.php?q=<?= rawurlencode('#' . (string)$tag) ?>#akis">#<?= e($tag) ?></a><?php endforeach; ?>
+                    <?php foreach ((array)$post['tags'] as $tag): ?><a href="index.php?q=<?= rawurlencode('#' . (string)$tag) ?>">#<?= e($tag) ?></a><?php endforeach; ?>
                 </div>
             <?php endif; ?>
             <?php if (!empty($post['edited_at'])): ?><p class="social-edited">Son düzenleme: <?= e(social_format_date((int)$post['edited_at'])) ?></p><?php endif; ?>
@@ -297,6 +345,23 @@ include __DIR__ . '/../header.php';
                         <input type="hidden" name="return" value="<?= e($returnUrl) ?>">
                         <button type="submit" class="social-action<?= !empty($postState['saved']) ? ' is-active' : '' ?>" aria-pressed="<?= !empty($postState['saved']) ? 'true' : 'false' ?>"><?= !empty($postState['saved']) ? 'Kaydedildi' : 'Kaydet' ?></button>
                     </form>
+                    <form method="post" action="aksiyon.php" data-social-ajax="watch" data-watch-wrap>
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="islem" value="gonderi_takip">
+                        <input type="hidden" name="post_id" value="<?= $postId ?>">
+                        <input type="hidden" name="return" value="<?= e($returnUrl) ?>">
+                        <button type="submit" class="social-action<?= !empty($postState['watching']) ? ' is-active' : '' ?>" aria-pressed="<?= !empty($postState['watching']) ? 'true' : 'false' ?>" data-label-active="Bildirim açık" data-label-inactive="Konuyu takip et"><?= !empty($postState['watching']) ? 'Bildirim açık' : 'Konuyu takip et' ?></button>
+                    </form>
+                    <?php if ($topic): ?>
+                        <form method="post" action="aksiyon.php" data-social-ajax="topic-watch">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="islem" value="konu_takip">
+                            <input type="hidden" name="topic_slug" value="<?= e($topic['slug']) ?>">
+                            <input type="hidden" name="return" value="<?= e($returnUrl) ?>">
+                            <button type="submit" class="social-action<?= $watchingTopic ? ' is-active' : '' ?>" aria-pressed="<?= $watchingTopic ? 'true' : 'false' ?>" data-label-active="<?= e($topic['name']) ?> takipte" data-label-inactive="<?= e($topic['name']) ?> konusunu takip et"><?= $watchingTopic ? e($topic['name']) . ' takipte' : e($topic['name']) . ' konusunu takip et' ?></button>
+                        </form>
+                    <?php endif; ?>
+                    <?php if (!$isAuthor): ?><a class="social-action" href="<?= e(social_message_url($authorProfile)) ?>">Yazara mesaj</a><?php endif; ?>
                 <?php else: ?>
                     <a class="social-action" href="<?= e(social_login_url('sosyal/' . $returnUrl)) ?>">GG <?= (int)$post['gg_count'] ?></a>
                 <?php endif; ?>
@@ -329,6 +394,20 @@ include __DIR__ . '/../header.php';
                     <?php endif; ?>
                     <form method="post" action="aksiyon.php"><?= csrf_field() ?><input type="hidden" name="islem" value="gonderi_sabitle"><input type="hidden" name="post_id" value="<?= $postId ?>"><input type="hidden" name="return" value="<?= e($returnUrl) ?>"><button type="submit"><?= !empty($post['pinned']) ? 'Sabitten kaldır' : 'Sabitle' ?></button></form>
                     <form method="post" action="aksiyon.php"><?= csrf_field() ?><input type="hidden" name="islem" value="gonderi_kilitle"><input type="hidden" name="post_id" value="<?= $postId ?>"><input type="hidden" name="return" value="<?= e($returnUrl) ?>"><button type="submit"><?= !empty($post['locked']) ? 'Kilidi aç' : 'Kilitle' ?></button></form>
+                    <form method="post" action="aksiyon.php" class="social-move-form">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="islem" value="gonderi_tasi">
+                        <input type="hidden" name="post_id" value="<?= $postId ?>">
+                        <input type="hidden" name="return" value="<?= e($returnUrl) ?>">
+                        <label>Konuya taşı
+                            <select name="topic_slug">
+                                <?php foreach (social_topics(false) as $moveTopic): ?>
+                                    <option value="<?= e($moveTopic['slug']) ?>"<?= (string)$moveTopic['slug'] === (string)$post['topic_slug'] ? ' selected' : '' ?>><?= e($moveTopic['icon']) ?> <?= e($moveTopic['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </label>
+                        <button type="submit">Taşı</button>
+                    </form>
                     <?php if ($isPublishedPost && (int)$post['user_id'] > 0 && !$isAuthor): ?>
                         <?php if (empty($post['award'])): ?>
                             <details class="social-award-form">
@@ -356,6 +435,19 @@ include __DIR__ . '/../header.php';
                     <h2>Yorumlar</h2>
                     <span><?= (int)$post['comment_count'] ?> yayınlanmış yorum</span>
                 </div>
+                <div class="social-comment-toolbar">
+                    <form method="get" action="gonderi.php">
+                        <input type="hidden" name="id" value="<?= $postId ?>">
+                        <label for="comment-sort">Sırala</label>
+                        <select id="comment-sort" name="yorum_sira" onchange="this.form.submit()" data-preserve-scroll-select>
+                            <option value="eski"<?= $commentSort === 'eski' ? ' selected' : '' ?>>Eskiden yeniye</option>
+                            <option value="yeni"<?= $commentSort === 'yeni' ? ' selected' : '' ?>>Yeniden eskiye</option>
+                            <option value="populer"<?= $commentSort === 'populer' ? ' selected' : '' ?>>En çok GG alan</option>
+                        </select>
+                        <noscript><button class="btn btn-ghost social-small-btn" type="submit">Uygula</button></noscript>
+                    </form>
+                    <?php if ((int)($post['solution_comment_id'] ?? 0) > 0): ?><a class="btn btn-ghost social-small-btn" href="#yorum-<?= (int)$post['solution_comment_id'] ?>">Kabul edilen çözüme git</a><?php endif; ?>
+                </div>
 
                 <?php if ($commentErrors): ?>
                     <div class="social-alert is-error" role="alert">
@@ -380,8 +472,10 @@ include __DIR__ . '/../header.php';
                             <button type="button" data-reply-cancel>Vazgeç</button>
                         </div>
                         <label for="social-comment-body">Yorumun</label>
-                        <textarea id="social-comment-body" name="body" maxlength="1500" rows="5" required data-character-count placeholder="Saygılı ve konuyla ilgili bir yorum yaz…"><?= e($commentBody) ?></textarea>
-                        <div class="social-form-meta"><span>Yeni üyelerin yorumları onaydan geçebilir.</span><span data-count-for="social-comment-body">0 / 1500</span></div>
+                        <?= social_editor_toolbar_html('social-comment-body') ?>
+                        <textarea id="social-comment-body" name="body" maxlength="1500" rows="5" required data-character-count data-comment-draft="<?= $postId ?>" placeholder="Saygılı ve konuyla ilgili bir yorum yaz…"><?= e($commentBody) ?></textarea>
+                        <div class="social-form-meta"><span>Taslak bu tarayıcıya kaydedilir. Yeni üyelerin yorumları onaydan geçebilir.</span><span data-count-for="social-comment-body">0 / 1500</span></div>
+                        <label class="social-check"><input type="checkbox" name="watch" value="1"<?= !empty($postState['watching']) ? ' checked' : '' ?>> Yeni cevaplarda bana bildir</label>
                         <button class="btn btn-primary" type="submit">Yorumu gönder</button>
                     </form>
                 <?php elseif (!empty($post['locked'])): ?>
@@ -398,7 +492,9 @@ include __DIR__ . '/../header.php';
                     <?= social_avatar_html($authorProfile, 'is-large') ?>
                     <span><strong><?= e($authorProfile['display_name']) ?></strong><small>@<?= e($authorProfile['username']) ?></small></span>
                 </a>
+                <p class="social-presence-line"><?= social_presence_html($authorProfile, $socialUser) ?></p>
                 <?php if (trim((string)($authorProfile['bio'] ?? '')) !== ''): ?><p><?= e($authorProfile['bio']) ?></p><?php endif; ?>
+                <?php if (trim((string)($authorProfile['signature'] ?? '')) !== ''): ?><div class="social-comment-signature"><?= social_render_text((string)$authorProfile['signature']) ?></div><?php endif; ?>
                 <div class="social-mini-stats">
                     <span><b><?= (int)($authorProfile['post_count'] ?? 0) ?></b> gönderi</span>
                     <span><b><?= (int)($authorProfile['follower_count'] ?? 0) ?></b> takipçi</span>
@@ -411,6 +507,7 @@ include __DIR__ . '/../header.php';
                         <input type="hidden" name="return" value="<?= e($returnUrl) ?>">
                         <button class="btn <?= $isFollowingAuthor ? 'btn-ghost' : 'btn-primary' ?> btn-full" type="submit" aria-pressed="<?= $isFollowingAuthor ? 'true' : 'false' ?>"><?= $isFollowingAuthor ? 'Takip ediliyor' : 'Takip et' ?></button>
                     </form>
+                    <a class="btn btn-ghost btn-full" href="<?= e(social_message_url($authorProfile)) ?>">Mesaj gönder</a>
                 <?php endif; ?>
                 <a class="text-link" href="<?= e(social_profile_url($authorProfile)) ?>">Profili görüntüle</a>
             </section>

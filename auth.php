@@ -43,7 +43,7 @@ function dg_safe_next(string $next): string {
     ];
     $allowed = in_array($path, $allowedRootPages, true)
         || in_array($path, ['blog/index.php', 'blog/yazi.php'], true)
-        || preg_match('#^sosyal/(?:index|gonderi|profil|bildirimler|yeni|etkinlikler|kurallar)\.php$#', $path)
+        || preg_match('#^sosyal/(?:index|konular|gonderi|profil|bildirimler|yeni|etkinlikler|kurallar|mesajlar|sohbet|uyeler)\.php$#', $path)
         || preg_match('#^admin/[a-z0-9_-]+\.php$#i', $path);
     if (!$allowed) return 'index.php';
 

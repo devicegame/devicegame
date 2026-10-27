@@ -536,7 +536,7 @@ include __DIR__ . '/header.php';
                 <h2 id="community-title">Toplulukta neler oluyor?</h2>
             </div>
             <p>Herkes okuyabilir; gönderi ve yorumlar mevcut Device Game hesabınla. Oyun önerileri, rehberler, anketler, haftalık etkinlikler ve oyun arkadaşı ilanları tek akışta.</p>
-            <a href="sosyal/index.php#akis" class="btn btn-primary">Sosyal akışa git</a>
+            <a href="sosyal/index.php" class="btn btn-primary">Sosyal akışa git</a>
         </div>
 
         <?php if ($social_latest): ?>
@@ -557,8 +557,8 @@ include __DIR__ . '/header.php';
             </div>
         <?php else: ?>
             <div class="social-home-grid">
-                <a class="social-home-card" href="sosyal/index.php?konu=oyun-arkadasi#akis"><small>Oyun Arkadaşı (LFG)</small><h3>Ekibini kur</h3><p>Oyun, platform, rank ve saat bilgisiyle sana uyan oyuncuları bul.</p></a>
-                <a class="social-home-card" href="sosyal/index.php?konu=rehberler#akis"><small>Rehberler &amp; Taktikler</small><h3>Bilgini paylaş</h3><p>Oyuncu rehberleri, ipuçları ve kurulum çözümleri toplulukta.</p></a>
+                <a class="social-home-card" href="sosyal/index.php?konu=oyun-arkadasi"><small>Oyun Arkadaşı (LFG)</small><h3>Ekibini kur</h3><p>Oyun, platform, rank ve saat bilgisiyle sana uyan oyuncuları bul.</p></a>
+                <a class="social-home-card" href="sosyal/index.php?konu=rehberler"><small>Rehberler &amp; Taktikler</small><h3>Bilgini paylaş</h3><p>Oyuncu rehberleri, ipuçları ve kurulum çözümleri toplulukta.</p></a>
                 <a class="social-home-card" href="sosyal/etkinlikler.php"><small>Etkinlikler</small><h3>Oyun gecesi planla</h3><p>Tarih ve buluşma yerini belirle, topluluğun katılımını tek yerden takip et.</p></a>
             </div>
         <?php endif; ?>
