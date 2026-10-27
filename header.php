@@ -62,6 +62,7 @@ function nav_link($file, $label, $current, $root = '') {
             <?php nav_link('shop.php', 'Mağaza', $current, $root); ?>
             <a href="<?php echo e($root); ?>index.php#dcoin" class="nav-item">D-Coin</a>
             <?php nav_link('blog/index.php', 'Blog', $current, $root); ?>
+            <?php nav_link('sosyal/index.php', 'Sosyal', $current, $root); ?>
             <?php nav_link('about.php', 'Vizyonumuz', $current, $root); ?>
             <?php nav_link('contact.php', 'İletişim', $current, $root); ?>
             <?php if ($dg_logged): ?>

@@ -91,10 +91,13 @@ function is_logged_in(): bool {
 function is_admin(): bool { return !empty($_SESSION['is_admin']) && (int)$_SESSION['is_admin'] === 1; }
 function current_user_id(): ?int { return isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null; }
 
-/** Alt klasörden (admin/api) de doğru login adresini üretir. */
+/** Alt klasörden (admin/api/blog/sosyal) de doğru login adresini üretir. */
 function dg_login_url(): string {
     $dir = str_replace('\\', '/', dirname((string)($_SERVER['SCRIPT_NAME'] ?? '')));
-    return (substr($dir, -6) === '/admin' || substr($dir, -4) === '/api') ? '../login.php' : 'login.php';
+    foreach (['/admin', '/api', '/blog', '/sosyal'] as $subdir) {
+        if (substr($dir, -strlen($subdir)) === $subdir) return '../login.php';
+    }
+    return 'login.php';
 }
 
 function require_login(): void {

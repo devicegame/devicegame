@@ -62,7 +62,7 @@ a{color:#4FE0A0}.card{background:#112A21;border:1px solid rgba(255,255,255,.08);
 .btn{display:inline-block;background:linear-gradient(135deg,#E0607A,#17362B);color:#fff;padding:10px 16px;border-radius:12px;text-decoration:none;font-weight:700}
 </style></head><body>
 <h1>Device Game — Veritabansız Sistem Teşhisi</h1>
-<p style="color:#93A89E">Bu sürüm MySQL kullanmaz. Veriler <code>storage/dg/database.json</code> içinde tutulur. Bu sayfa yalnızca PHP, dosyalar, izinler ve JSON bütünlüğünü kontrol eder.</p>
+<p style="color:#93A89E">Bu sürüm MySQL kullanmaz. D-Coin verileri <code>storage/dg/database.json</code>, DG Social verileri <code>storage/social/</code> altında parçalı JSON/JSONL dosyalarında tutulur. Bu sayfa PHP, dosyalar, izinler ve JSON bütünlüğünü kontrol eder.</p>
 
 <div class="danger"><b>⚠️ Kurulum bitince bu dosyayı sil:</b> <a class="btn" href="diagnose.php?sil=1">diagnose.php kendini silsin →</a></div>
 
@@ -93,11 +93,13 @@ echo '<h2>2. Gerekli Dosyalar</h2><pre>';
 $required = [
     'db.php', 'index.php', 'login.php', 'register.php', 'auth.php', 'logout.php',
     'config.php', 'header.php', 'footer.php', 'style.css', 'shop.css', 'script.js',
-    'lib/shop.php', 'partials/slider.php', 'partials/product-card.php',
+    'lib/shop.php', 'lib/social.php', 'partials/slider.php', 'partials/product-card.php',
     'partials/dcoin-storefront.php', 'partials/dcoin-purchase-modal.php', 'storage/products.json', 'storage/blog-categories.json',
-    'assets/css/devicegame.css', 'assets/css/dcoin.css', 'assets/js/dcoin.js',
+    'social.css', 'sosyal/_common.php', 'sosyal/_post-card.php', 'sosyal/index.php', 'sosyal/gonderi.php',
+    'sosyal/yeni.php', 'sosyal/profil.php', 'sosyal/bildirimler.php', 'sosyal/aksiyon.php',
+    'assets/css/devicegame.css', 'assets/css/dcoin.css', 'assets/js/dcoin.js', 'assets/js/social.js',
     'admin/index.php', 'admin/ads.php', 'admin/users.php',
-    'admin/store.php', 'admin/blog.php', 'admin/logs.php', 'api/watch_start.php', 'api/watch_complete.php', 'api/purchase.php',
+    'admin/store.php', 'admin/blog.php', 'admin/social.php', 'admin/logs.php', 'api/watch_start.php', 'api/watch_complete.php', 'api/purchase.php',
     'storage/.htaccess', 'storage/dg/.htaccess', 'uploads/.htaccess', 'uploads/index.html',
 ];
 foreach ($required as $f) {
@@ -110,9 +112,16 @@ echo '<h2>3. JSON Depolama & İzinler</h2><pre>';
 $storageDir = defined('DG_STORAGE_DIR') ? DG_STORAGE_DIR : (__DIR__ . '/storage/dg');
 $dataFile = defined('DG_DATA_FILE') ? DG_DATA_FILE : ($storageDir . '/database.json');
 $lockFile = defined('DG_LOCK_FILE') ? DG_LOCK_FILE : ($storageDir . '/database.lock');
-foreach (['storage' => __DIR__ . '/storage', 'storage/dg' => $storageDir, 'uploads' => __DIR__ . '/uploads'] as $label => $path) {
+foreach ([
+    'storage' => __DIR__ . '/storage',
+    'storage/dg' => $storageDir,
+    'storage/social' => __DIR__ . '/storage/social',
+    'uploads' => __DIR__ . '/uploads',
+    'uploads/social' => __DIR__ . '/uploads/social',
+] as $label => $path) {
     $exists = is_dir($path);
-    echo dg_diag_line($exists && is_writable($path), $label . '/', $exists ? (is_writable($path) ? 'yazılabilir' : 'var ama YAZILAMIYOR (755/775)') : 'KLASÖR YOK');
+    $optionalRuntimeDir = in_array($label, ['storage/social', 'uploads/social'], true);
+    echo dg_diag_line(($exists && is_writable($path)) || (!$exists && $optionalRuntimeDir && is_writable(dirname($path))), $label . '/', $exists ? (is_writable($path) ? 'yazılabilir' : 'var ama YAZILAMIYOR (755/775)') : ($optionalRuntimeDir ? 'ilk sosyal açılışta oluşur' : 'KLASÖR YOK'));
 }
 echo dg_diag_line(is_file($dataFile), 'database.json', is_file($dataFile) ? 'var (' . number_format((int)@filesize($dataFile)) . ' bayt)' : 'henüz yok — ilk açılışta oluşur');
 if (is_file($dataFile)) {
@@ -206,8 +215,37 @@ echo '</pre>';
 if (!$foundLeftovers) $ok('Eski MySQL/test kalıntısı yok.');
 else $warn('Bu dosyalar yeni sistem tarafından kullanılmıyor. Özellikle test dosyalarını güvenlik için silin: <code>' . h(implode(', ', $foundLeftovers)) . '</code>');
 
-// 8) error_log
-echo '<h2>8. error_log (son satırlar)</h2>';
+// 8) DG Social
+echo '<h2>8. DG Social (Parçalı JSON/JSONL)</h2>';
+$socialLib = __DIR__ . '/lib/social.php';
+if (!is_readable($socialLib)) {
+    $bad('lib/social.php okunamadığı için sosyal platform başlatılamadı. lib/social.php ve sosyal/ klasörünü yeniden yükleyin.');
+} elseif (!$coreOk) {
+    $warn('Uygulama çekirdeği başlatılamadığı için DG Social kontrolü atlandı. Önce storage/dg iznini düzeltin.');
+} else {
+    try {
+        require_once $socialLib;
+        social_ensure_storage();
+        $socialStats = social_stats(true);
+        $socialStorage = social_storage_stats();
+        echo '<pre>'
+            . dg_diag_line(is_dir(social_storage_dir()) && is_writable(social_storage_dir()), 'storage/social/', is_writable(social_storage_dir()) ? 'hazır ve yazılabilir' : 'YAZILAMIYOR')
+            . dg_diag_line(is_dir(social_upload_dir()) && is_writable(social_upload_dir()), 'uploads/social/', is_writable(social_upload_dir()) ? 'hazır ve yazılabilir' : 'YAZILAMIYOR')
+            . 'konular: ' . (int)$socialStats['topics'] . "\n"
+            . 'yayındaki gönderiler: ' . (int)$socialStats['posts'] . "\n"
+            . 'onay bekleyen gönderi/yorum: ' . (int)$socialStats['pending_posts'] . ' / ' . (int)$socialStats['pending_comments'] . "\n"
+            . 'açık şikâyetler: ' . (int)$socialStats['open_reports'] . "\n"
+            . 'dosyalar: ' . (int)$socialStorage['files'] . ' (' . number_format(((int)$socialStorage['bytes']) / 1024, 1, ',', '.') . " KB)\n"
+            . '</pre>';
+        $ok('DG Social depolaması hazır: <a href="sosyal/index.php">sosyal/index.php</a> açılmalı.');
+    } catch (Throwable $e) {
+        $bad('DG Social depolaması başlatılamadı: ' . h($e->getMessage()));
+        echo '<div class="card"><code>storage/social/</code> ve <code>uploads/social/</code> izinlerini 755/775 yapın. Bozuk bir JSON varsa dosyayı silmeden önce yedekleyin; yönetimdeki <b>Sosyal → Bakım</b> ekranından indeksler yeniden oluşturulabilir.</div>';
+    }
+}
+
+// 9) error_log
+echo '<h2>9. error_log (son satırlar)</h2>';
 $logCandidates = [__DIR__ . '/error_log', __DIR__ . '/../error_log', ini_get('error_log') ?: ''];
 $foundLog = false;
 foreach ($logCandidates as $lp) {
@@ -222,7 +260,7 @@ if (!$foundLog) echo '<pre>error_log dosyası bulunamadı/okunamıyor. cPanel �
 
 echo '<h2>Sonuç</h2><div class="card">'
    . 'Kritik maddeler ✅ ise <a href="index.php">index.php</a> açılmalı. Gerçek hatayı anlık görmek için: <a href="index.php?debug=1">index.php?debug=1</a><br>'
-   . '500 devam ediyorsa 8. bölümdeki son "PHP Fatal error" satırı gerçek sebeptir. Veritabanı/MySQL/phpMyAdmin adımı yoktur.'
+   . '500 devam ediyorsa 9. bölümdeki son "PHP Fatal error" satırı gerçek sebeptir. Veritabanı/MySQL/phpMyAdmin adımı yoktur.'
    . '</div>';
 echo '<p style="color:#6E8579;font-size:12px;margin-top:20px">İşin bitince: <a href="diagnose.php?sil=1">bu dosyayı sil</a> • DeviceGame diagnose v3 (database-less)</p>';
 ?>

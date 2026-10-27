@@ -13,6 +13,7 @@
             <a href="<?php echo e($root); ?>index.php">Ana sayfa</a>
             <a href="<?php echo e($root); ?>shop.php">Mağaza</a>
             <a href="<?php echo e($root); ?>blog/index.php">Blog</a>
+            <a href="<?php echo e($root); ?>sosyal/index.php">Sosyal</a>
             <a href="<?php echo e($root); ?>about.php">Vizyonumuz</a>
             <a href="<?php echo e($root); ?>contact.php">İletişim</a>
         </nav>

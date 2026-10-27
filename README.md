@@ -10,7 +10,9 @@ WhatsApp'ta hazır bir mesaj olarak açılır.
 > dosyasına bakın. MySQL/phpMyAdmin gerekmez. D-Coin arayüzleri bu
 > sitenin mevcut tasarımını ve `config.php` içindeki SEO bilgilerini
 > kullanır; `storage/products.json` içindeki mağaza ürünleri D-Coin
-> vitrinine otomatik eşitlenir.
+> vitrinine otomatik eşitlenir. **DG Social** forum + akış platformu da
+> aynı hesabı kullanır; sosyal veriler çekirdek JSON’dan ayrı olarak
+> `storage/social/` altında parçalı JSON/JSONL dosyalarında tutulur.
 
 ## Gereksinim
 
@@ -49,6 +51,14 @@ cd tools && npm install && npm start
 | `blog/index.php` | **Blog** — yazı listesi (`/blog`) |
 | `blog/yazi.php` | Blog yazısı (`?slug=...`) |
 | `blog.css` | Blog sayfalarına özel stiller |
+| `sosyal/index.php` | **DG Social** — herkese açık forum + akış, konu filtreleri ve arama |
+| `sosyal/gonderi.php` | Sosyal gönderi detayı, yorumlar ve tek seviyeli cevaplar |
+| `sosyal/yeni.php` | Gönderi oluşturma/düzenleme (giriş gerekli) |
+| `sosyal/profil.php` | Sosyal profil, takip/engelleme ve kullanıcı içerikleri |
+| `sosyal/bildirimler.php` | Yorum, takip ve bahsetme bildirimleri |
+| `sosyal/aksiyon.php` | GG, kaydetme, takip, şikâyet ve moderasyon işlemleri |
+| `lib/social.php` | Parçalı JSON/JSONL sosyal veri ve moderasyon katmanı |
+| `social.css` + `assets/js/social.js` | Sosyal sayfaların stilleri ve aşamalı JavaScript iyileştirmeleri |
 | `partials/product-card.php` | Tek ürün kartı (vitrin, arama, benzer ürünler) |
 | `partials/slider.php` | Mağaza vitrini slider'ı (ana sayfa + mağaza) |
 | `partials/dcoin-storefront.php` | Mağaza/ürün sayfalarında ortak D-Coin fiyatı ve satın alma düğmeleri |
@@ -100,6 +110,36 @@ ekle / siparişi onayla) görünür; WhatsApp balonu bu sayfalarda gizlenir.
 `storage/` klasörü `.gitignore` içindedir ve Apache için `.htaccess` ile
 dışarıya kapatılır. Nginx kullanıyorsan `location ^~ /storage/ { deny all; }`
 satırını ekle ya da klasörü web kökünün dışına taşı.
+
+## DG Social (forum + akış)
+
+`/sosyal/index.php` herkesin okuyabildiği Device Game topluluğudur.
+Gönderi, yorum ve etkileşim için mevcut Device Game hesabıyla giriş
+gerekir. Profiller, forum konuları, gönderiler, tek seviyeli yorum
+cevapları, GG, kaydetme, takip, bildirim, etiket/arama, şikâyet ve
+engelleme bulunur. **Oyun Arkadaşı (LFG)** konusu oyun, platform, rank,
+mikrofon, oyun saati ve aranan kişi sayısını ayrıca toplar.
+
+Sosyal veriler `storage/dg/database.json` içine yazılmaz:
+
+| Yol | İçerik |
+| --- | --- |
+| `storage/social/` | Profiller, gönderiler, yorum/şikâyet JSONL dosyaları, takip/bildirim verileri ve hazır akış indeksleri |
+| `uploads/social/` | Güvenilir üyelerin gönderi görselleri |
+
+Yazmalar kilit ve geçici dosya + `rename()` ile atomik yapılır. Akış
+listeleri `indexes/` altındaki özetleri kullanır. Yedek alırken hem
+`storage/social/` hem de `uploads/social/` klasörlerini birlikte
+kopyalayın. İndeksler bozulursa yönetimde **Sosyal → Bakım →
+İndeksleri yeniden oluştur** kullanılabilir.
+
+Güvenlik ve moderasyon, `/admin/social.php` ekranından yönetilir:
+onay kuyruğu, şikâyetler, yayınla/gizle/sil, sabitleme, kilitleme,
+konu yönetimi ve indeks bakımı. Yeni veya çok bağlantılı içerikler onay
+kuyruğuna düşebilir; kullanıcı bağlantıları `nofollow ugc noopener`
+olarak basılır. Görsel yükleme güvenilir üyeler/adminlerle sınırlıdır
+(JPG/PNG/WebP, en fazla 4 MB). Bu dosya tabanlı MVP’de özel mesaj,
+canlı sohbet, video yükleme ve algoritmik öneri akışı yoktur.
 
 ## Sipariş paneli
 

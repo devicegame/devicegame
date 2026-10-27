@@ -4,6 +4,10 @@ storage/dg/database.json.tmp.*
 storage/dg/database.lock
 storage/dg/*.bak
 
+# DG Social calisma verisi ve kullanici yuklemeleri
+storage/social/
+uploads/social/
+
 # Gelistirme bagimliliklari (yerel onizleme)
 node_modules/
 
