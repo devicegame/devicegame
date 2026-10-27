@@ -7,10 +7,10 @@ $socialCardProfile = [
     'username' => (string)($post['author_username'] ?? ''),
     'display_name' => (string)($post['author_display'] ?? $post['author_username'] ?? 'Oyuncu'),
 ];
-$socialCardState = $socialStates[$socialPostId] ?? ['gg' => false, 'saved' => false];
-$socialReturn = basename((string)($_SERVER['SCRIPT_NAME'] ?? 'index.php')) . (!empty($_SERVER['QUERY_STRING']) ? '?' . (string)$_SERVER['QUERY_STRING'] : '');
+$socialCardState = $socialStates[$socialPostId] ?? ['gg' => false, 'saved' => false, 'poll_vote' => '', 'rsvp' => false];
+$socialReturn = social_current_return_url('gonderi-' . $socialPostId);
 ?>
-<article class="social-post-card<?= !empty($post['pinned']) ? ' is-pinned' : '' ?>" aria-labelledby="post-title-<?= $socialPostId ?>">
+<article id="gonderi-<?= $socialPostId ?>" class="social-post-card<?= !empty($post['pinned']) ? ' is-pinned' : '' ?><?= !empty($post['award']) ? ' is-awarded' : '' ?>" aria-labelledby="post-title-<?= $socialPostId ?>">
     <div class="social-post-top">
         <a class="social-author" href="<?= e(social_profile_url($socialCardProfile)) ?>">
             <?= social_avatar_html($socialCardProfile) ?>
@@ -21,8 +21,11 @@ $socialReturn = basename((string)($_SERVER['SCRIPT_NAME'] ?? 'index.php')) . (!e
         </a>
         <div class="social-post-badges">
             <?php if ($socialCardTopic): ?>
-                <a class="social-topic-badge" href="index.php?konu=<?= rawurlencode((string)$socialCardTopic['slug']) ?>"><?= e($socialCardTopic['icon'] ?? '💬') ?> <?= e($socialCardTopic['name']) ?></a>
+                <a class="social-topic-badge" href="<?= e(social_feed_url(['konu' => (string)$socialCardTopic['slug']])) ?>"><?= e($socialCardTopic['icon'] ?? '💬') ?> <?= e($socialCardTopic['name']) ?></a>
             <?php endif; ?>
+            <?= social_award_badge_html($post) ?>
+            <?php if (!empty($post['poll'])): ?><span class="social-mini-badge">Anket</span><?php endif; ?>
+            <?php if (social_is_event_post($post)): ?><span class="social-mini-badge">Etkinlik</span><?php endif; ?>
             <?php if (!empty($post['pinned'])): ?><span class="social-mini-badge">Sabit</span><?php endif; ?>
             <?php if (!empty($post['locked'])): ?><span class="social-mini-badge">Kilitli</span><?php endif; ?>
             <?php if (($post['status'] ?? 'published') !== 'published'): ?><span class="social-mini-badge is-warning"><?= e(social_status_label((string)$post['status'])) ?></span><?php endif; ?>
@@ -42,18 +45,22 @@ $socialReturn = basename((string)($_SERVER['SCRIPT_NAME'] ?? 'index.php')) . (!e
         </a>
     <?php endif; ?>
 
-    <?php if (!empty($post['meta']) && array_filter((array)$post['meta'])): ?>
+    <?php if (!empty($post['meta']) && !social_is_event_post($post) && array_filter((array)$post['meta'], static fn($value): bool => trim((string)$value) !== '')): ?>
         <div class="social-lfg-chips" aria-label="Oyun arkadaşı bilgileri">
             <?php foreach ((array)$post['meta'] as $key => $value): ?>
-                <?php if (trim((string)$value) !== ''): ?><span><b><?= e(social_lfg_label((string)$key)) ?>:</b> <?= e($value) ?></span><?php endif; ?>
+                <?php $labelValue = social_meta_value_label((string)$key, $value); ?>
+                <?php if ($labelValue !== ''): ?><span><b><?= e(social_lfg_label((string)$key)) ?>:</b> <?= e($labelValue) ?></span><?php endif; ?>
             <?php endforeach; ?>
         </div>
     <?php endif; ?>
 
+    <?= social_event_html($post, $socialUser, $socialCardState, $socialReturn) ?>
+    <?= social_poll_html($post, $socialUser, $socialCardState, $socialReturn) ?>
+
     <?php if (!empty($post['tags'])): ?>
         <div class="social-tags">
             <?php foreach ((array)$post['tags'] as $tag): ?>
-                <a href="index.php?q=<?= rawurlencode('#' . (string)$tag) ?>">#<?= e($tag) ?></a>
+                <a href="index.php?q=<?= rawurlencode('#' . (string)$tag) ?>#akis">#<?= e($tag) ?></a>
             <?php endforeach; ?>
         </div>
     <?php endif; ?>

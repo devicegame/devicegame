@@ -13,6 +13,8 @@ if (!$order) {
 }
 
 $page_title = 'Sipariş ' . $order['id'];
+$page_canonical = false;
+$page_robots = 'noindex,nofollow';
 $page_css = ['shop.css'];
 $body_class = 'shop-page';
 include 'header.php';

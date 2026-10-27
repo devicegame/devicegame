@@ -14,15 +14,17 @@
             <a href="<?php echo e($root); ?>shop.php">Mağaza</a>
             <a href="<?php echo e($root); ?>blog/index.php">Blog</a>
             <a href="<?php echo e($root); ?>sosyal/index.php">Sosyal</a>
+            <a href="<?php echo e($root); ?>sosyal/etkinlikler.php">Etkinlikler</a>
+            <a href="<?php echo e($root); ?>sosyal/kurallar.php">Topluluk Kuralları</a>
             <a href="<?php echo e($root); ?>about.php">Vizyonumuz</a>
             <a href="<?php echo e($root); ?>contact.php">İletişim</a>
         </nav>
 
         <nav class="footer-col" aria-label="Device Game dünyası">
             <h2 class="footer-head">Mağaza</h2>
-            <a href="<?php echo e($root); ?>shop.php?kategori=key">Oyun keyleri</a>
-            <a href="<?php echo e($root); ?>shop.php?kategori=account">Premium hesaplar</a>
-            <a href="<?php echo e($root); ?>shop.php?kategori=gear">Ekipman &amp; baskı</a>
+            <a href="<?php echo e($root); ?>shop.php?kategori=key#katalog">Oyun keyleri</a>
+            <a href="<?php echo e($root); ?>shop.php?kategori=account#katalog">Premium hesaplar</a>
+            <a href="<?php echo e($root); ?>shop.php?kategori=gear#katalog">Ekipman &amp; baskı</a>
             <a href="<?php echo e($root); ?>cart.php">Sepetim</a>
         </nav>
 

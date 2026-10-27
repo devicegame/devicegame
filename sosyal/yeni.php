@@ -27,7 +27,24 @@ $form = [
     'lfg_mic' => '',
     'lfg_play_time' => '',
     'lfg_needed' => '',
+    'event_game' => '',
+    'event_platform' => '',
+    'event_place' => '',
+    'event_at' => '',
+    'event_capacity' => '0',
+    'poll_days' => '7',
 ];
+$pollEnabled = false;
+$pollFormOptions = ['', '', '', '', ''];
+$pollLocked = false;
+$introTemplate = !$editingPost && (string)($_GET['sablon'] ?? '') === 'tanisma';
+if ($introTemplate) {
+    $introName = (string)($socialProfile['display_name'] ?? $socialUser['username'] ?? 'Yeni üye');
+    $form['topic_slug'] = 'genel-sohbet';
+    $form['title'] = 'Merhaba, ben ' . $introName;
+    $form['body'] = "Merhaba! Ben {$introName}.\n\nŞu sıralar oynadığım oyunlar: \nOynadığım platform: \nBurada daha çok oyun önerileri ve topluluk etkinlikleri hakkında konuşmak istiyorum.";
+    $form['tags'] = '#tanisma';
+}
 if ($editingPost) {
     $form['topic_slug'] = (string)$editingPost['topic_slug'];
     $form['title'] = (string)$editingPost['title'];
@@ -36,11 +53,31 @@ if ($editingPost) {
     foreach (['game', 'platform', 'rank', 'mic', 'play_time', 'needed'] as $key) {
         $form['lfg_' . $key] = (string)($editingPost['meta'][$key] ?? '');
     }
+    $form['event_game'] = (string)($editingPost['meta']['game'] ?? '');
+    $form['event_platform'] = (string)($editingPost['meta']['platform'] ?? '');
+    $form['event_place'] = (string)($editingPost['meta']['event_place'] ?? '');
+    $form['event_at'] = (int)($editingPost['meta']['event_at'] ?? 0) > 0 ? date('Y-m-d\TH:i', (int)$editingPost['meta']['event_at']) : '';
+    $form['event_capacity'] = (string)(int)($editingPost['meta']['event_capacity'] ?? 0);
+    $existingPoll = social_normalize_poll($editingPost['poll'] ?? null);
+    if ($existingPoll) {
+        $pollEnabled = true;
+        $pollLocked = (int)$existingPoll['total_votes'] > 0;
+        $form['poll_days'] = (int)$existingPoll['closes_at'] > 0 ? '7' : '0';
+        foreach ((array)$existingPoll['options'] as $i => $option) {
+            $pollFormOptions[$i] = (string)($option['label'] ?? '');
+        }
+    }
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     foreach (array_keys($form) as $field) {
         $form[$field] = (string)($_POST[$field] ?? $form[$field]);
+    }
+    $pollEnabled = !empty($_POST['poll_enabled']);
+    $submittedPollOptions = is_array($_POST['poll_options'] ?? null) ? (array)$_POST['poll_options'] : [];
+    $pollFormOptions = ['', '', '', '', ''];
+    foreach (array_slice($submittedPollOptions, 0, 5) as $i => $option) {
+        $pollFormOptions[$i] = is_array($option) ? (string)($option['label'] ?? '') : (string)$option;
     }
     if (!csrf_verify((string)($_POST['csrf'] ?? ''))) {
         $formErrors[] = 'Güvenlik doğrulaması başarısız. Sayfayı yenileyip tekrar dene.';
@@ -73,9 +110,13 @@ if ($editingPost && !isset($socialTopicMap[(string)$editingPost['topic_slug']]))
     if ($currentTopic) $topicOptions[] = $currentTopic;
 }
 $canUpload = $socialProfile ? social_can_upload_image($socialProfile, $socialUser) : false;
+$existingPoll = $editingPost ? social_normalize_poll($editingPost['poll'] ?? null) : null;
+$pollLocked = $existingPoll && (int)$existingPoll['total_votes'] > 0;
 
 $page_title = $editingPost ? 'Gönderiyi Düzenle — DG Social' : 'Yeni Gönderi — DG Social';
 $page_meta_desc = 'DG Social’da yeni bir forum konusu veya topluluk gönderisi oluştur.';
+$page_canonical = false;
+$page_robots = 'noindex,follow';
 $page_css = ['shop.css', 'social.css'];
 $body_class = 'shop-page social-page';
 include __DIR__ . '/../header.php';
@@ -98,6 +139,10 @@ include __DIR__ . '/../header.php';
                 <?php foreach ($formErrors as $error): ?><li><?= e($error) ?></li><?php endforeach; ?>
             </ul>
         </div>
+    <?php endif; ?>
+
+    <?php if ($introTemplate && $_SERVER['REQUEST_METHOD'] !== 'POST'): ?>
+        <div class="social-alert is-info">Tanışma şablonunu hazırladık. Boş alanları kendine göre düzenleyip paylaşabilirsin.</div>
     <?php endif; ?>
 
     <form method="post" enctype="multipart/form-data" class="social-form-card" data-social-post-form>
@@ -127,7 +172,7 @@ include __DIR__ . '/../header.php';
             <div class="social-form-meta"><span>Bağlantılar otomatik tanınır; HTML kabul edilmez.</span><span data-count-for="social-body">0 / 5000</span></div>
         </div>
 
-        <fieldset class="social-lfg-fields" data-lfg-fields>
+        <fieldset class="social-lfg-fields" data-lfg-fields data-topic-fields="oyun-arkadasi">
             <legend>Oyun arkadaşı bilgileri</legend>
             <p class="muted">Bu alanlar yalnızca Oyun Arkadaşı konusunda kullanılır.</p>
             <div class="social-form-grid">
@@ -163,6 +208,66 @@ include __DIR__ . '/../header.php';
             </div>
         </fieldset>
 
+        <fieldset class="social-lfg-fields" data-topic-fields="etkinlikler">
+            <legend>Etkinlik bilgileri</legend>
+            <p class="muted">Etkinlik sahibi otomatik olarak ilk katılımcı olur. Tarih ve saat site saatine göre gösterilir.</p>
+            <div class="social-form-grid">
+                <div class="field">
+                    <label for="event-game">Oyun *</label>
+                    <input id="event-game" type="text" name="event_game" maxlength="60" value="<?= e($form['event_game']) ?>" placeholder="Örn. Project Overcharge">
+                </div>
+                <div class="field">
+                    <label for="event-platform">Platform</label>
+                    <input id="event-platform" type="text" name="event_platform" maxlength="60" value="<?= e($form['event_platform']) ?>" placeholder="PC, PS5, Xbox…">
+                </div>
+                <div class="field">
+                    <label for="event-place">Buluşma yeri *</label>
+                    <input id="event-place" type="text" name="event_place" maxlength="60" value="<?= e($form['event_place']) ?>" placeholder="Örn. oyun içi lobi">
+                </div>
+                <div class="field">
+                    <label for="event-at">Tarih ve saat *</label>
+                    <input id="event-at" type="datetime-local" name="event_at" value="<?= e($form['event_at']) ?>">
+                </div>
+                <div class="field">
+                    <label for="event-capacity">Kapasite</label>
+                    <input id="event-capacity" type="number" name="event_capacity" min="0" max="1000" step="1" value="<?= e($form['event_capacity']) ?>">
+                    <p class="form-note">0 = sınırsız katılım.</p>
+                </div>
+            </div>
+        </fieldset>
+
+        <fieldset class="social-lfg-fields social-poll-editor">
+            <legend>Anket</legend>
+            <label class="social-check"><input type="checkbox" name="poll_enabled" value="1" data-poll-toggle<?= $pollEnabled ? ' checked' : '' ?><?= $pollLocked ? ' disabled' : '' ?>> Bu gönderiye anket ekle</label>
+            <?php if ($pollLocked): ?><input type="hidden" name="poll_enabled" value="1"><?php endif; ?>
+            <div data-poll-fields data-poll-locked="<?= $pollLocked ? '1' : '0' ?>">
+                <p class="muted">En az 2, en fazla 5 farklı seçenek yaz. Üyeler tek oy kullanır ve kapanışa kadar oyunu değiştirebilir.</p>
+                <?php if ($existingPoll): ?>
+                    <p class="form-note">
+                        Mevcut anket: <?= (int)$existingPoll['total_votes'] ?> oy<?= (int)$existingPoll['closes_at'] > 0 ? ' · Kapanış: ' . e(social_format_date((int)$existingPoll['closes_at'])) : ' · Süresiz' ?>.
+                        <?php if ($pollLocked): ?>Oy kullanıldığı için seçenekler ve kapanış kilitlendi.<?php endif; ?>
+                    </p>
+                <?php endif; ?>
+                <div class="social-poll-editor-grid">
+                    <?php foreach ($pollFormOptions as $index => $optionLabel): ?>
+                        <div class="field">
+                            <label for="poll-option-<?= $index + 1 ?>">Seçenek <?= $index + 1 ?><?= $index < 2 ? ' *' : '' ?></label>
+                            <input id="poll-option-<?= $index + 1 ?>" type="text" name="poll_options[]" maxlength="60" value="<?= e($optionLabel) ?>" placeholder="<?= $index === 0 ? 'Örn. PC' : ($index === 1 ? 'Örn. Konsol' : 'İsteğe bağlı') ?>"<?= $pollLocked ? ' readonly' : '' ?>>
+                        </div>
+                    <?php endforeach; ?>
+                    <div class="field">
+                        <label for="poll-days">Oylama süresi</label>
+                        <select id="poll-days" name="poll_days"<?= $existingPoll ? ' disabled' : '' ?>>
+                            <?php foreach ([1 => '1 gün', 3 => '3 gün', 7 => '7 gün', 14 => '14 gün', 30 => '30 gün', 0 => 'Süresiz'] as $days => $label): ?>
+                                <option value="<?= $days ?>"<?= (int)$form['poll_days'] === $days ? ' selected' : '' ?>><?= e($label) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <?php if ($existingPoll): ?><p class="form-note">Mevcut anketin süresi düzenleme sırasında değiştirilemez.</p><?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        </fieldset>
+
         <div class="field">
             <label for="social-tags">Etiketler</label>
             <input id="social-tags" type="text" name="tags" maxlength="180" value="<?= e($form['tags']) ?>" placeholder="#rehber, #indirim, #lfg">
@@ -182,7 +287,7 @@ include __DIR__ . '/../header.php';
         </div>
 
         <div class="social-form-actions">
-            <a class="btn btn-ghost" href="<?= $editingPost ? e(social_post_url((int)$editingPost['id'])) : 'index.php' ?>">Vazgeç</a>
+            <a class="btn btn-ghost" href="<?= $editingPost ? e(social_post_url((int)$editingPost['id'])) : ($form['topic_slug'] === 'etkinlikler' ? 'etkinlikler.php' : 'index.php') ?>">Vazgeç</a>
             <button class="btn btn-primary" type="submit"><?= $editingPost ? 'Değişiklikleri kaydet' : 'Gönderiyi paylaş' ?></button>
         </div>
     </form>

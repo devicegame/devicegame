@@ -8,6 +8,8 @@ $post = blog_post($slug);
 if (!$post) {
     http_response_code(404);
     $page_title = 'Yazı bulunamadı';
+    $page_canonical = false;
+    $page_robots = 'noindex,nofollow';
     $page_css = ['shop.css', 'blog.css'];
     $body_class = 'shop-page';
     include __DIR__ . '/../header.php';
@@ -23,13 +25,22 @@ if (!$post) {
     exit;
 }
 
+$postCategory = blog_post_category($post);
 $page_title = $post['title'];
 $page_meta_desc = $post['excerpt'] !== '' ? $post['excerpt'] : mb_substr(strip_tags($post['content']), 0, 155);
+$page_canonical = 'blog/yazi.php?slug=' . rawurlencode((string)$post['slug']);
+$page_og_type = 'article';
+$page_og_title = (string)$post['title'];
+$page_og_desc = $page_meta_desc;
+$page_og_image = !empty($post['image']) ? (string)$post['image'] : 'assets/img/devicegame-og.png';
+$page_og_image_alt = (string)$post['title'];
+$page_published_time = (string)$post['date'];
+$page_modified_time = (string)$post['date'];
+$page_article_section = (string)$postCategory['name'];
+$page_article_tags = array_filter([(string)($post['tag'] ?? '')]);
 $page_css = ['shop.css', 'blog.css'];
 $body_class = 'shop-page';
 include __DIR__ . '/../header.php';
-
-$postCategory = blog_post_category($post);
 $sameCategory = [];
 $remainingPosts = [];
 foreach (blog_posts() as $item) {
@@ -51,7 +62,7 @@ $others = array_slice(array_merge($sameCategory, $remainingPosts), 0, 3);
         <span class="sep">/</span>
         <a href="index.php">Blog</a>
         <span class="sep">/</span>
-        <a href="index.php?kategori=<?php echo urlencode($postCategory['slug']); ?>"><?php echo e($postCategory['name']); ?></a>
+        <a href="index.php?kategori=<?php echo urlencode($postCategory['slug']); ?>#blog-kategoriler"><?php echo e($postCategory['name']); ?></a>
         <span class="sep">/</span>
         <span class="muted"><?php echo e($post['title']); ?></span>
     </nav>
@@ -59,7 +70,7 @@ $others = array_slice(array_merge($sameCategory, $remainingPosts), 0, 3);
     <article class="post">
         <header class="post-head">
             <p class="blog-meta">
-                <a class="post-tag" href="index.php?kategori=<?php echo urlencode($postCategory['slug']); ?>"><?php echo e($postCategory['name']); ?></a>
+                <a class="post-tag" href="index.php?kategori=<?php echo urlencode($postCategory['slug']); ?>#blog-kategoriler"><?php echo e($postCategory['name']); ?></a>
                 <?php if ($post['tag'] !== '' && blog_category_slugify((string)$post['tag']) !== $postCategory['slug'] && shop_fold((string)$post['tag']) !== shop_fold((string)$postCategory['name'])): ?>
                     <span class="dot-sep" aria-hidden="true">·</span>
                     <span><?php echo e($post['tag']); ?></span>
@@ -85,7 +96,7 @@ $others = array_slice(array_merge($sameCategory, $remainingPosts), 0, 3);
         </div>
 
         <footer class="post-foot">
-            <a class="btn btn-ghost" href="index.php?kategori=<?php echo urlencode($postCategory['slug']); ?>"><?php echo e($postCategory['name']); ?> yazıları</a>
+            <a class="btn btn-ghost" href="index.php?kategori=<?php echo urlencode($postCategory['slug']); ?>#blog-kategoriler"><?php echo e($postCategory['name']); ?> yazıları</a>
             <a class="btn btn-ghost" href="index.php">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
                 Tüm yazılar
@@ -104,7 +115,7 @@ $others = array_slice(array_merge($sameCategory, $remainingPosts), 0, 3);
                     <p class="eyebrow">Devamı</p>
                     <h2 id="blog-more-title"><?php echo $sameCategory ? e($postCategory['name']) . ' kategorisinden.' : 'Diğer yazılar.'; ?></h2>
                 </div>
-                <a class="text-link" href="<?php echo $sameCategory ? 'index.php?kategori=' . urlencode($postCategory['slug']) : 'index.php'; ?>">Tümünü gör</a>
+                <a class="text-link" href="<?php echo $sameCategory ? 'index.php?kategori=' . urlencode($postCategory['slug']) . '#blog-kategoriler' : 'index.php'; ?>">Tümünü gör</a>
             </div>
             <div class="blog-grid">
                 <?php foreach ($others as $item): ?>

@@ -94,6 +94,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $page_title = 'Sepetim';
 $page_meta_desc = 'Device Game sepetini gözden geçir, sipariş bilgilerini doldur ve WhatsApp üzerinden siparişini tamamla.';
+$page_canonical = false;
+$page_robots = 'noindex,nofollow';
 $page_css = ['shop.css'];
 $body_class = 'shop-page' . (cart_count() > 0 ? ' has-bar' : '');
 include 'header.php';

@@ -1,5 +1,8 @@
 <?php
 $page_title = 'İletişim';
+$page_canonical = 'contact.php';
+$page_og_type = 'website';
+$page_og_title = 'İletişim';
 include 'header.php';
 ?>
 

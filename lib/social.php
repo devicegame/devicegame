@@ -170,6 +170,16 @@ if (!defined('DG_SOCIAL')) {
         return date('d.m.Y H:i', $timestamp);
     }
 
+    function social_time_until(int $timestamp): string
+    {
+        $diff = $timestamp - time();
+        if ($diff <= 0) return 'başladı';
+        if ($diff < 3600) return max(1, (int)ceil($diff / 60)) . ' dk sonra';
+        if ($diff < 86400) return (int)ceil($diff / 3600) . ' sa sonra';
+        if ($diff < 604800) return (int)ceil($diff / 86400) . ' g sonra';
+        return date('d.m.Y', $timestamp);
+    }
+
     function social_create_dirs(): void
     {
         $dirs = [
@@ -325,6 +335,7 @@ if (!defined('DG_SOCIAL')) {
             ['slug' => 'project-overcharge', 'name' => 'Project: Overcharge', 'description' => 'Stüdyo projemiz hakkında gelişmeler ve fikirler.', 'icon' => '🚀', 'official_only' => false, 'active' => true, 'order' => 6],
             ['slug' => 'rehberler', 'name' => 'Rehberler', 'description' => 'Topluluk tarafından hazırlanan oyun rehberleri.', 'icon' => '📚', 'official_only' => false, 'active' => true, 'order' => 7],
             ['slug' => 'magaza-firsatlari', 'name' => 'Mağaza & Fırsatlar', 'description' => 'İndirimler, stoklar ve D-Coin fırsatları.', 'icon' => '🏷', 'official_only' => false, 'active' => true, 'order' => 8],
+            ['slug' => 'etkinlikler', 'name' => 'Etkinlikler', 'description' => 'Oyun geceleri, topluluk buluşmaları ve haftalık etkinlik planları.', 'icon' => '🗓', 'official_only' => false, 'active' => true, 'order' => 9],
         ];
     }
 
@@ -353,6 +364,9 @@ if (!defined('DG_SOCIAL')) {
             'created_at' => $now,
             'updated_at' => $now,
             'counters' => ['posts' => 1, 'comments' => 1, 'reports' => 1, 'notifications' => 1],
+            'migrations' => [],
+            'last_backup_at' => 0,
+            'last_backup_by' => 0,
         ];
     }
 
@@ -393,6 +407,29 @@ if (!defined('DG_SOCIAL')) {
                 }
                 if (!is_file(social_topics_file())) {
                     social_write_json_atomic(social_topics_file(), social_default_topics());
+                }
+                $meta = social_meta_locked();
+                if (!is_array($meta['migrations'] ?? null)) $meta['migrations'] = [];
+                if (empty($meta['migrations']['events_topic_v1'])) {
+                    $topics = [];
+                    foreach (social_read_json(social_topics_file(), social_default_topics()) as $i => $topic) {
+                        if (is_array($topic)) $topics[] = social_normalize_topic($topic, $i + 1);
+                    }
+                    $hasEventsTopic = false;
+                    foreach ($topics as $topic) if ((string)$topic['slug'] === 'etkinlikler') $hasEventsTopic = true;
+                    if (!$hasEventsTopic) {
+                        foreach (social_default_topics() as $topic) {
+                            if ((string)$topic['slug'] === 'etkinlikler') $topics[] = social_normalize_topic($topic, 9);
+                        }
+                        usort($topics, static fn(array $a, array $b): int => [$a['order'], social_fold($a['name'])] <=> [$b['order'], social_fold($b['name'])]);
+                        social_write_json_atomic(social_topics_file(), $topics);
+                    }
+                    if (!is_file(social_index_file('topic-etkinlikler'))) {
+                        social_write_json_atomic(social_index_file('topic-etkinlikler'), [], false);
+                    }
+                    $meta['migrations']['events_topic_v1'] = time();
+                    $meta['updated_at'] = time();
+                    social_write_json_atomic(social_meta_file(), $meta);
                 }
                 foreach (['latest', 'moderation-comments'] as $index) {
                     $file = social_index_file($index);
@@ -452,6 +489,9 @@ if (!defined('DG_SOCIAL')) {
         $meta += social_default_meta();
         if (!is_array($meta['counters'] ?? null)) $meta['counters'] = [];
         $meta['counters'] += ['posts' => 1, 'comments' => 1, 'reports' => 1, 'notifications' => 1];
+        if (!is_array($meta['migrations'] ?? null)) $meta['migrations'] = [];
+        $meta['last_backup_at'] = max(0, (int)($meta['last_backup_at'] ?? 0));
+        $meta['last_backup_by'] = max(0, (int)($meta['last_backup_by'] ?? 0));
         return $meta;
     }
 
@@ -880,14 +920,127 @@ if (!defined('DG_SOCIAL')) {
         return (int)preg_match_all('~https?://[^\s<]+~iu', $text);
     }
 
+    function social_normalize_poll($poll): ?array
+    {
+        if (!is_array($poll) || !is_array($poll['options'] ?? null)) return null;
+        $options = [];
+        $seenLabels = [];
+        $seenIds = [];
+        foreach ((array)$poll['options'] as $rawOption) {
+            $label = is_array($rawOption)
+                ? social_clean_text((string)($rawOption['label'] ?? ''), 60)
+                : social_clean_text((string)$rawOption, 60);
+            $folded = social_fold($label);
+            if ($label === '' || isset($seenLabels[$folded])) continue;
+            $id = is_array($rawOption) ? strtolower(trim((string)($rawOption['id'] ?? ''))) : '';
+            if (!preg_match('/^o[1-5]$/', $id) || isset($seenIds[$id])) {
+                $id = 'o' . (count($options) + 1);
+                while (isset($seenIds[$id]) && count($options) < 5) {
+                    $id = 'o' . ((int)substr($id, 1) + 1);
+                }
+            }
+            if (isset($seenIds[$id])) continue;
+            $seenLabels[$folded] = true;
+            $seenIds[$id] = true;
+            $options[] = [
+                'id' => $id,
+                'label' => $label,
+                'votes' => is_array($rawOption) ? max(0, (int)($rawOption['votes'] ?? 0)) : 0,
+            ];
+            if (count($options) >= 5) break;
+        }
+        if (count($options) < 2) return null;
+        $total = 0;
+        foreach ($options as $option) $total += (int)$option['votes'];
+        return [
+            'options' => $options,
+            'closes_at' => max(0, (int)($poll['closes_at'] ?? 0)),
+            'total_votes' => $total,
+            'allow_change' => !isset($poll['allow_change']) || !empty($poll['allow_change']),
+        ];
+    }
+
+    function social_poll_closed(array $poll): bool
+    {
+        return (int)($poll['closes_at'] ?? 0) > 0 && time() >= (int)$poll['closes_at'];
+    }
+
+    function social_poll_with_counts(array $poll, array $reactions): array
+    {
+        $poll = social_normalize_poll($poll) ?: $poll;
+        $counts = [];
+        foreach ((array)($poll['options'] ?? []) as $option) {
+            if (is_array($option)) $counts[(string)$option['id']] = 0;
+        }
+        foreach ((array)($reactions['poll_votes'] ?? []) as $optionId) {
+            $optionId = (string)$optionId;
+            if (isset($counts[$optionId])) $counts[$optionId]++;
+        }
+        $total = 0;
+        foreach ((array)($poll['options'] ?? []) as $i => $option) {
+            if (!is_array($option)) continue;
+            $poll['options'][$i]['votes'] = (int)($counts[(string)$option['id']] ?? 0);
+            $total += (int)$poll['options'][$i]['votes'];
+        }
+        $poll['total_votes'] = $total;
+        return $poll;
+    }
+
+    function social_poll_payload(array $post, ?array $viewer = null, ?array $reactions = null): ?array
+    {
+        $poll = social_normalize_poll($post['poll'] ?? null);
+        if (!$poll) return null;
+        if ($reactions !== null) $poll = social_poll_with_counts($poll, $reactions);
+        $total = max(0, (int)($poll['total_votes'] ?? 0));
+        foreach ($poll['options'] as $i => $option) {
+            $poll['options'][$i]['percent'] = $total > 0 ? (int)round(((int)$option['votes'] * 100) / $total) : 0;
+        }
+        $selected = '';
+        if ($viewer && $reactions !== null) {
+            $selected = (string)(($reactions['poll_votes'] ?? [])[(string)(int)$viewer['id']] ?? '');
+        }
+        $poll['selected'] = $selected;
+        $poll['closed'] = social_poll_closed($poll);
+        $poll['can_vote'] = $viewer && ($post['status'] ?? '') === 'published' && !$poll['closed'];
+        return $poll;
+    }
+
+    function social_normalize_award($award): ?array
+    {
+        if (!is_array($award)) return null;
+        $amount = (int)($award['amount'] ?? 0);
+        if ($amount <= 0 || $amount > 100000) return null;
+        return [
+            'amount' => $amount,
+            'reason' => social_clean_text((string)($award['reason'] ?? ''), 180),
+            'awarded_by' => max(0, (int)($award['awarded_by'] ?? 0)),
+            'awarded_at' => max(0, (int)($award['awarded_at'] ?? 0)),
+        ];
+    }
+
+    function social_is_event_post(array $post): bool
+    {
+        return (string)($post['topic_slug'] ?? '') === 'etkinlikler'
+            || (int)(($post['meta'] ?? [])['event_at'] ?? 0) > 0;
+    }
+
+    function social_event_is_open(array $post): bool
+    {
+        if (!social_is_event_post($post)) return false;
+        $startsAt = (int)(($post['meta'] ?? [])['event_at'] ?? 0);
+        return $startsAt > 0 && ($startsAt + 21600) >= time();
+    }
+
     function social_normalize_post(array $post): array
     {
         $created = (int)($post['created_at'] ?? time());
         $meta = [];
         if (is_array($post['meta'] ?? null)) {
-            foreach (['game', 'platform', 'rank', 'mic', 'play_time', 'needed'] as $key) {
+            foreach (['game', 'platform', 'rank', 'mic', 'play_time', 'needed', 'event_place'] as $key) {
                 $meta[$key] = social_clean_text((string)($post['meta'][$key] ?? ''), 60);
             }
+            $meta['event_at'] = max(0, (int)($post['meta']['event_at'] ?? 0));
+            $meta['event_capacity'] = max(0, min(1000, (int)($post['meta']['event_capacity'] ?? 0)));
         }
         return [
             'schema_version' => 1,
@@ -901,6 +1054,9 @@ if (!defined('DG_SOCIAL')) {
             'excerpt' => social_excerpt((string)($post['excerpt'] ?? $post['body'] ?? ''), 240),
             'tags' => array_values(array_filter(array_map(static fn($tag): string => social_slugify((string)$tag), (array)($post['tags'] ?? [])))),
             'meta' => $meta,
+            'poll' => social_normalize_poll($post['poll'] ?? null),
+            'award' => social_normalize_award($post['award'] ?? null),
+            'rsvp_count' => max(0, (int)($post['rsvp_count'] ?? 0)),
             'image' => trim((string)($post['image'] ?? '')),
             'status' => in_array(($post['status'] ?? 'published'), ['published', 'pending', 'hidden', 'deleted'], true) ? (string)$post['status'] : 'published',
             'pinned' => !empty($post['pinned']),
@@ -928,6 +1084,9 @@ if (!defined('DG_SOCIAL')) {
             'excerpt' => $post['excerpt'],
             'tags' => $post['tags'],
             'meta' => $post['meta'],
+            'poll' => $post['poll'],
+            'award' => $post['award'],
+            'rsvp_count' => $post['rsvp_count'],
             'image' => $post['image'],
             'status' => $post['status'],
             'pinned' => $post['pinned'],
@@ -1026,7 +1185,7 @@ if (!defined('DG_SOCIAL')) {
             'last_activity_at' => $created,
         ]);
         social_write_json_atomic(social_post_file($id), $post, false);
-        social_write_json_atomic(social_reactions_file($id), ['gg' => []], false);
+        social_write_json_atomic(social_reactions_file($id), ['gg' => [], 'poll_votes' => [], 'rsvp' => []], false);
         social_index_upsert_locked(social_post_summary($post));
         social_sync_profile_post_counts_locked(0);
     }
@@ -1135,6 +1294,81 @@ if (!defined('DG_SOCIAL')) {
         });
     }
 
+    function social_parse_poll_input(array $input, ?array $existing = null): array
+    {
+        $existingPoll = $existing ? social_normalize_poll($existing['poll'] ?? null) : null;
+        $hasPollInput = array_key_exists('poll_enabled', $input)
+            || array_key_exists('poll_options', $input)
+            || array_key_exists('poll_days', $input);
+        if (!$hasPollInput) {
+            return ['errors' => [], 'poll' => $existingPoll];
+        }
+        if (empty($input['poll_enabled'])) {
+            if ($existingPoll && (int)$existingPoll['total_votes'] > 0) {
+                return ['errors' => ['Oy kullanılan anket kaldırılamaz.'], 'poll' => $existingPoll];
+            }
+            return ['errors' => [], 'poll' => null];
+        }
+
+        $rawOptions = $input['poll_options'] ?? [];
+        if (is_string($rawOptions)) {
+            $rawOptions = preg_split('/\r\n|\r|\n/', $rawOptions) ?: [];
+        }
+        if (!is_array($rawOptions)) $rawOptions = [];
+        $labels = [];
+        $seen = [];
+        $duplicate = false;
+        foreach ($rawOptions as $rawOption) {
+            $label = social_clean_text(is_array($rawOption) ? (string)($rawOption['label'] ?? '') : (string)$rawOption, 60);
+            if ($label === '') continue;
+            $folded = social_fold($label);
+            if (isset($seen[$folded])) {
+                $duplicate = true;
+                continue;
+            }
+            $seen[$folded] = true;
+            $labels[] = $label;
+        }
+        $errors = [];
+        if ($duplicate) $errors[] = 'Anket seçenekleri birbirinden farklı olmalı.';
+        if (count($labels) < 2) $errors[] = 'Anket için en az 2 seçenek yaz.';
+        if (count($labels) > 5) $errors[] = 'Anket en fazla 5 seçenek içerebilir.';
+        if ($errors) return ['errors' => $errors, 'poll' => $existingPoll];
+
+        if ($existingPoll) {
+            $existingLabels = array_map(static fn(array $option): string => social_fold((string)$option['label']), (array)$existingPoll['options']);
+            $submittedLabels = array_map(static fn(string $label): string => social_fold($label), $labels);
+            if ((int)$existingPoll['total_votes'] > 0 && $existingLabels !== $submittedLabels) {
+                return ['errors' => ['Oy kullanılan anket seçenekleri değiştirilemez.'], 'poll' => $existingPoll];
+            }
+            $options = [];
+            foreach ($labels as $i => $label) {
+                $options[] = [
+                    'id' => 'o' . ($i + 1),
+                    'label' => $label,
+                    'votes' => (int)(($existingPoll['options'][$i] ?? [])['votes'] ?? 0),
+                ];
+            }
+            return ['errors' => [], 'poll' => social_normalize_poll([
+                'options' => $options,
+                'closes_at' => (int)$existingPoll['closes_at'],
+                'allow_change' => true,
+            ])];
+        }
+
+        $days = (int)($input['poll_days'] ?? 7);
+        if (!in_array($days, [0, 1, 3, 7, 14, 30], true)) $days = 7;
+        $options = [];
+        foreach ($labels as $i => $label) {
+            $options[] = ['id' => 'o' . ($i + 1), 'label' => $label, 'votes' => 0];
+        }
+        return ['errors' => [], 'poll' => social_normalize_poll([
+            'options' => $options,
+            'closes_at' => $days > 0 ? time() + ($days * 86400) : 0,
+            'allow_change' => true,
+        ])];
+    }
+
     function social_validate_post_input(array $input, array $user, ?array $existing = null): array
     {
         $errors = [];
@@ -1160,6 +1394,30 @@ if (!defined('DG_SOCIAL')) {
             if ($meta['game'] === '') $errors[] = 'Oyun arkadaşı ilanında oyun adını yaz.';
             if ($meta['platform'] === '') $errors[] = 'Oyun arkadaşı ilanında platformu seç/yaz.';
         }
+        if ($topicSlug === 'etkinlikler') {
+            $meta['game'] = social_clean_text((string)($input['event_game'] ?? $input['lfg_game'] ?? $input['game'] ?? ''), 60);
+            $meta['platform'] = social_clean_text((string)($input['event_platform'] ?? $input['lfg_platform'] ?? $input['platform'] ?? ''), 60);
+            $meta['event_place'] = social_clean_text((string)($input['event_place'] ?? ''), 60);
+            $meta['event_capacity'] = max(0, min(1000, (int)($input['event_capacity'] ?? 0)));
+            $rawEventAt = trim((string)($input['event_at'] ?? ''));
+            $eventAt = 0;
+            if ($rawEventAt !== '') {
+                $eventAt = is_numeric($rawEventAt) ? (int)$rawEventAt : (strtotime($rawEventAt) ?: 0);
+            }
+            $meta['event_at'] = $eventAt;
+            $existingEventAt = $existing ? (int)(($existing['meta'] ?? [])['event_at'] ?? 0) : 0;
+            if ($meta['game'] === '') $errors[] = 'Etkinlikte oynanacak oyunu yaz.';
+            if ($meta['event_place'] === '') $errors[] = 'Etkinliğin buluşma yerini yaz.';
+            if ($eventAt <= 0) {
+                $errors[] = 'Geçerli bir etkinlik tarih ve saati seç.';
+            } elseif ($eventAt < time() - 3600 && $eventAt !== $existingEventAt) {
+                $errors[] = 'Etkinlik tarihi geçmişte olamaz.';
+            } elseif ($eventAt > time() + (366 * 86400)) {
+                $errors[] = 'Etkinlik en fazla bir yıl ileriye planlanabilir.';
+            }
+        }
+        $pollResult = social_parse_poll_input($input, $existing);
+        $errors = array_merge($errors, (array)$pollResult['errors']);
         return [
             'errors' => $errors,
             'data' => [
@@ -1168,6 +1426,7 @@ if (!defined('DG_SOCIAL')) {
                 'body' => $body,
                 'tags' => $tags,
                 'meta' => $meta,
+                'poll' => $pollResult['poll'],
             ],
         ];
     }
@@ -1292,6 +1551,7 @@ if (!defined('DG_SOCIAL')) {
             $trusted = social_is_trusted($profile, $user);
             $status = (!empty($user['is_admin']) || ($trusted && social_url_count((string)$data['body']) < 3)) ? 'published' : 'pending';
             $now = time();
+            $isEvent = ($data['topic_slug'] ?? '') === 'etkinlikler' || (int)(($data['meta'] ?? [])['event_at'] ?? 0) > 0;
             $post = social_normalize_post([
                 'id' => $postId,
                 'user_id' => $userId,
@@ -1302,6 +1562,8 @@ if (!defined('DG_SOCIAL')) {
                 'body' => $data['body'],
                 'tags' => $data['tags'],
                 'meta' => $data['meta'],
+                'poll' => $data['poll'] ?? null,
+                'rsvp_count' => $isEvent ? 1 : 0,
                 'image' => $imagePath,
                 'status' => $status,
                 'created_at' => $now,
@@ -1309,7 +1571,11 @@ if (!defined('DG_SOCIAL')) {
                 'last_activity_at' => $now,
             ]);
             social_write_json_atomic(social_post_file($postId), $post, false);
-            social_write_json_atomic(social_reactions_file($postId), ['gg' => []], false);
+            social_write_json_atomic(social_reactions_file($postId), [
+                'gg' => [],
+                'poll_votes' => [],
+                'rsvp' => $isEvent ? [$userId] : [],
+            ], false);
             social_index_upsert_locked(social_post_summary($post));
             social_sync_profile_post_counts_locked($userId);
             if ($status === 'published') {
@@ -1338,6 +1604,23 @@ if (!defined('DG_SOCIAL')) {
         return social_with_lock(static function () use ($actor, $post, $validation, $files, $input, $author, $isAdmin): array {
             $data = $validation['data'];
             $oldStatus = (string)$post['status'];
+            $reactions = social_reactions((int)$post['id']);
+            $eventAfter = ($data['topic_slug'] ?? '') === 'etkinlikler' || (int)(($data['meta'] ?? [])['event_at'] ?? 0) > 0;
+            $rsvpCount = 0;
+            if ($eventAfter) {
+                $authorId = (int)$post['user_id'];
+                $prospectiveRsvps = $reactions['rsvp'];
+                if ($authorId > 0 && !in_array($authorId, $prospectiveRsvps, true)) $prospectiveRsvps[] = $authorId;
+                $capacity = (int)(($data['meta'] ?? [])['event_capacity'] ?? 0);
+                if ($capacity > 0 && count($prospectiveRsvps) > $capacity) {
+                    return ['errors' => ['Etkinlik kapasitesi, mevcut katılımcı sayısının altında olamaz.'], 'id' => (int)$post['id'], 'status' => $oldStatus];
+                }
+                if ($prospectiveRsvps !== $reactions['rsvp']) {
+                    $reactions['rsvp'] = $prospectiveRsvps;
+                    social_write_json_atomic(social_reactions_file((int)$post['id']), $reactions, false);
+                }
+                $rsvpCount = count($prospectiveRsvps);
+            }
             $imagePath = (string)$post['image'];
             if (!empty($input['remove_image'])) {
                 social_delete_upload($imagePath);
@@ -1356,6 +1639,7 @@ if (!defined('DG_SOCIAL')) {
                 $status = 'pending';
             }
             $post = social_normalize_post(array_merge($post, $data, [
+                'rsvp_count' => $rsvpCount,
                 'image' => $imagePath,
                 'status' => $status,
                 'updated_at' => time(),
@@ -1418,6 +1702,85 @@ if (!defined('DG_SOCIAL')) {
             social_index_upsert_locked(social_post_summary($post));
             return ['errors' => [], 'value' => (bool)$post[$flag]];
         });
+    }
+
+    function social_award_post(array $admin, int $postId, int $amount, string $reason): array
+    {
+        if (empty($admin['is_admin'])) return ['errors' => ['Bu işlem için yönetici yetkisi gerekir.']];
+        $amount = (int)$amount;
+        $reason = social_clean_text($reason, 180);
+        if ($amount < 5 || $amount > 1000) return ['errors' => ['Ödül 5 ile 1000 D-Coin arasında olmalı.']];
+        if (social_text_len($reason) < 3) return ['errors' => ['Ödül gerekçesini kısaca yaz.']];
+        $post = social_get_post($postId, true);
+        if (!$post || $post['status'] !== 'published') return ['errors' => ['Yalnızca yayındaki bir gönderiye ödül verilebilir.']];
+        if ((int)$post['user_id'] <= 0) return ['errors' => ['Resmî hesaba D-Coin ödülü verilemez.']];
+        if ((int)$admin['id'] === (int)$post['user_id']) return ['errors' => ['Kendi gönderine ödül veremezsin.']];
+        if (!empty($post['award'])) return ['errors' => ['Bu gönderi zaten Editör Ödülü aldı.']];
+        $authorUser = function_exists('dg_find_user_by_id') ? dg_find_user_by_id((int)$post['user_id']) : null;
+        if (!$authorUser || (int)($authorUser['is_banned'] ?? 0) === 1) {
+            return ['errors' => ['Gönderi sahibi ödül almaya uygun değil.']];
+        }
+        if (!function_exists('dg_adjust_user_balance')) {
+            return ['errors' => ['D-Coin çekirdeği yüklenemedi.']];
+        }
+
+        return social_with_lock(static function () use ($admin, $postId, $amount, $reason): array {
+            $fresh = social_get_post($postId, true);
+            if (!$fresh || $fresh['status'] !== 'published' || !empty($fresh['award'])) {
+                return ['errors' => ['Bu gönderi artık ödüle uygun değil veya zaten ödül aldı.']];
+            }
+            $balanceResult = dg_adjust_user_balance((int)$fresh['user_id'], $amount);
+            if (empty($balanceResult['ok'])) {
+                return ['errors' => [(string)($balanceResult['error'] ?? 'Bakiye güncellenemedi.')]];
+            }
+            try {
+                $award = [
+                    'amount' => $amount,
+                    'reason' => $reason,
+                    'awarded_by' => (int)$admin['id'],
+                    'awarded_at' => time(),
+                ];
+                $fresh['award'] = $award;
+                $fresh['updated_at'] = time();
+                $fresh = social_normalize_post($fresh);
+                social_write_json_atomic(social_post_file($postId), $fresh, false);
+                social_index_upsert_locked(social_post_summary($fresh));
+                social_notify_locked(
+                    (int)$fresh['user_id'],
+                    (int)$admin['id'],
+                    'award',
+                    $postId,
+                    0,
+                    'Tebrikler! “' . (string)$fresh['title'] . '” Editör Ödülü aldı ve hesabına +' . $amount . ' D-Coin eklendi.',
+                    'gonderi.php?id=' . $postId
+                );
+                return ['errors' => [], 'award' => $fresh['award'], 'balance' => (int)($balanceResult['balance'] ?? 0)];
+            } catch (Throwable $exception) {
+                try {
+                    dg_adjust_user_balance((int)$fresh['user_id'], -$amount);
+                } catch (Throwable) {
+                    // Geri alma denemesi başarısızsa asıl hata loglanır; tekrar denemek
+                    // çift ödüle yol açabileceği için işlem burada durdurulur.
+                }
+                error_log('[social award] ' . $exception->getMessage());
+                return ['errors' => ['Ödül kaydedilemedi; D-Coin işlemi geri alındı.']];
+            }
+        });
+    }
+
+    function social_user_award_stats(int $userId): array
+    {
+        social_ensure_storage();
+        $count = 0;
+        $total = 0;
+        foreach (social_read_json(social_index_file('user-' . $userId), []) as $item) {
+            if (!is_array($item) || ($item['status'] ?? '') !== 'published') continue;
+            $award = social_normalize_award($item['award'] ?? null);
+            if (!$award) continue;
+            $count++;
+            $total += (int)$award['amount'];
+        }
+        return ['count' => $count, 'total' => $total];
     }
 
     function social_list_posts(array $options = [], ?array $viewer = null): array
@@ -1495,7 +1858,20 @@ if (!defined('DG_SOCIAL')) {
                         }
                     }
                 } else {
-                    $haystack = social_fold(implode(' ', [$item['title'], $item['excerpt'], $item['author_username'], $item['author_display'], implode(' ', $item['tags']), implode(' ', (array)$item['meta'])]));
+                    $pollLabels = [];
+                    foreach ((array)(($item['poll'] ?? [])['options'] ?? []) as $option) {
+                        if (is_array($option)) $pollLabels[] = (string)($option['label'] ?? '');
+                    }
+                    $haystack = social_fold(implode(' ', [
+                        $item['title'],
+                        $item['excerpt'],
+                        $item['author_username'],
+                        $item['author_display'],
+                        implode(' ', $item['tags']),
+                        implode(' ', array_map('strval', (array)$item['meta'])),
+                        implode(' ', $pollLabels),
+                        (string)(($item['award'] ?? [])['reason'] ?? ''),
+                    ]));
                     $matched = str_contains($haystack, $foldQuery);
                     if (!$matched && $scannedBodies < 750) {
                         $scannedBodies++;
@@ -1513,7 +1889,13 @@ if (!defined('DG_SOCIAL')) {
         } elseif ($sort === 'popular') {
             $score = static function (array $item): float {
                 $ageHours = max(0, (time() - (int)$item['created_at']) / 3600);
-                return ((int)$item['gg_count'] * 4 + (int)$item['comment_count'] * 3 + 1) / pow($ageHours + 2, 0.35);
+                $engagement = (int)$item['gg_count'] * 4
+                    + (int)$item['comment_count'] * 3
+                    + (int)(($item['poll'] ?? [])['total_votes'] ?? 0) * 2
+                    + (int)($item['rsvp_count'] ?? 0) * 2
+                    + (!empty($item['award']) ? 6 : 0)
+                    + 1;
+                return $engagement / pow($ageHours + 2, 0.35);
             };
             usort($filtered, static fn(array $a, array $b): int => [$score($b), (int)$b['last_activity_at']] <=> [$score($a), (int)$a['last_activity_at']]);
         } else {
@@ -1805,9 +2187,21 @@ if (!defined('DG_SOCIAL')) {
     function social_reactions(int $postId): array
     {
         social_ensure_storage();
-        $data = social_read_json(social_reactions_file($postId), ['gg' => []]);
+        $data = social_read_json(social_reactions_file($postId), ['gg' => [], 'poll_votes' => [], 'rsvp' => []]);
         $gg = array_values(array_unique(array_map('intval', (array)($data['gg'] ?? []))));
-        return ['gg' => $gg];
+        $pollVotes = [];
+        foreach ((array)($data['poll_votes'] ?? []) as $userId => $optionId) {
+            $userId = (int)$userId;
+            $optionId = strtolower(trim((string)$optionId));
+            if ($userId > 0 && preg_match('/^o[1-5]$/', $optionId)) {
+                $pollVotes[(string)$userId] = $optionId;
+            }
+        }
+        $rsvp = array_values(array_unique(array_filter(
+            array_map('intval', (array)($data['rsvp'] ?? [])),
+            static fn(int $id): bool => $id >= 0
+        )));
+        return ['gg' => $gg, 'poll_votes' => $pollVotes, 'rsvp' => $rsvp];
     }
 
     function social_toggle_gg(array $user, int $postId): array
@@ -1853,14 +2247,138 @@ if (!defined('DG_SOCIAL')) {
         });
     }
 
+    function social_vote_poll(array $user, int $postId, string $optionId): array
+    {
+        $optionId = strtolower(trim($optionId));
+        $post = social_get_post($postId);
+        if (!$post || !social_post_visible($post, $user, social_blocked_ids($user))) {
+            return ['errors' => ['Gönderi bulunamadı.'], 'poll' => null];
+        }
+        $poll = social_normalize_poll($post['poll'] ?? null);
+        if (!$poll) return ['errors' => ['Bu gönderide anket yok.'], 'poll' => null];
+        if (($post['status'] ?? '') !== 'published') return ['errors' => ['Anket yayına girdikten sonra oy kullanılabilir.'], 'poll' => social_poll_payload($post, $user, social_reactions($postId))];
+        if (social_poll_closed($poll)) return ['errors' => ['Bu anket kapandı.'], 'poll' => social_poll_payload($post, $user, social_reactions($postId))];
+        $valid = false;
+        foreach ($poll['options'] as $option) if ((string)$option['id'] === $optionId) $valid = true;
+        if (!$valid) return ['errors' => ['Geçerli bir anket seçeneği seç.'], 'poll' => social_poll_payload($post, $user, social_reactions($postId))];
+        social_ensure_profile($user);
+
+        return social_with_lock(static function () use ($user, $postId, $optionId): array {
+            $fresh = social_get_post($postId, true);
+            if (!$fresh || ($fresh['status'] ?? '') !== 'published') return ['errors' => ['Anket şu anda oy kullanmaya kapalı.'], 'poll' => null];
+            $freshPoll = social_normalize_poll($fresh['poll'] ?? null);
+            $reactions = social_reactions($postId);
+            if (!$freshPoll || social_poll_closed($freshPoll)) {
+                return ['errors' => ['Bu anket kapandı.'], 'poll' => $freshPoll ? social_poll_payload($fresh, $user, $reactions) : null];
+            }
+            $valid = false;
+            foreach ($freshPoll['options'] as $option) if ((string)$option['id'] === $optionId) $valid = true;
+            if (!$valid) return ['errors' => ['Geçerli bir anket seçeneği seç.'], 'poll' => social_poll_payload($fresh, $user, $reactions)];
+
+            $userKey = (string)(int)$user['id'];
+            $previous = (string)($reactions['poll_votes'][$userKey] ?? '');
+            if ($previous !== $optionId) {
+                if (empty($user['is_admin']) && !social_rate_limit_locked((int)$user['id'], 'poll_votes', [[3600, 60], [86400, 300]])) {
+                    return ['errors' => ['Çok sık oy değiştirdin. Biraz bekleyip tekrar dene.'], 'poll' => social_poll_payload($fresh, $user, $reactions)];
+                }
+                $reactions['poll_votes'][$userKey] = $optionId;
+                social_write_json_atomic(social_reactions_file($postId), $reactions, false);
+                $fresh['poll'] = social_poll_with_counts($freshPoll, $reactions);
+                $fresh = social_normalize_post($fresh);
+                social_write_json_atomic(social_post_file($postId), $fresh, false);
+                social_index_upsert_locked(social_post_summary($fresh));
+            }
+            return ['errors' => [], 'poll' => social_poll_payload($fresh, $user, $reactions), 'selected' => $optionId];
+        });
+    }
+
+    function social_event_attendee_ids(int $postId): array
+    {
+        return social_reactions($postId)['rsvp'];
+    }
+
+    function social_event_attendees(int $postId, ?array $viewer = null, int $limit = 12): array
+    {
+        $blocked = !empty($viewer['is_admin']) ? [] : social_blocked_ids($viewer);
+        $ids = array_values(array_filter(
+            social_event_attendee_ids($postId),
+            static fn(int $id): bool => !in_array($id, $blocked, true)
+        ));
+        $profiles = social_profiles_by_ids(array_slice($ids, 0, max(1, $limit)));
+        $out = [];
+        foreach (array_slice($ids, 0, max(1, $limit)) as $id) {
+            if (isset($profiles[$id])) $out[] = $profiles[$id];
+        }
+        return $out;
+    }
+
+    function social_toggle_event_rsvp(array $user, int $postId): array
+    {
+        $post = social_get_post($postId);
+        if (!$post || !social_post_visible($post, $user, social_blocked_ids($user))) {
+            return ['errors' => ['Etkinlik bulunamadı.'], 'active' => false, 'count' => 0];
+        }
+        if (!social_is_event_post($post)) return ['errors' => ['Bu gönderi bir etkinlik değil.'], 'active' => false, 'count' => 0];
+        if (($post['status'] ?? '') !== 'published') return ['errors' => ['Etkinlik yayına girdikten sonra katılım açılır.'], 'active' => false, 'count' => (int)$post['rsvp_count']];
+        social_ensure_profile($user);
+
+        return social_with_lock(static function () use ($user, $postId): array {
+            $fresh = social_get_post($postId, true);
+            if (!$fresh || !social_is_event_post($fresh) || ($fresh['status'] ?? '') !== 'published') {
+                return ['errors' => ['Etkinlik şu anda katılıma kapalı.'], 'active' => false, 'count' => 0];
+            }
+            $userId = (int)$user['id'];
+            $reactions = social_reactions($postId);
+            $active = in_array($userId, $reactions['rsvp'], true);
+            $capacity = (int)(($fresh['meta'] ?? [])['event_capacity'] ?? 0);
+            if (!$active) {
+                if (!social_event_is_open($fresh)) {
+                    return ['errors' => ['Bu etkinliğin katılım süresi doldu.'], 'active' => false, 'count' => count($reactions['rsvp'])];
+                }
+                if ($capacity > 0 && count($reactions['rsvp']) >= $capacity) {
+                    return ['errors' => ['Etkinlik kapasitesi doldu.'], 'active' => false, 'count' => count($reactions['rsvp'])];
+                }
+                if (empty($user['is_admin']) && !social_rate_limit_locked($userId, 'rsvps', [[3600, 30], [86400, 100]])) {
+                    return ['errors' => ['Çok sık katılım değiştirdin. Biraz bekleyip tekrar dene.'], 'active' => false, 'count' => count($reactions['rsvp'])];
+                }
+                $reactions['rsvp'][] = $userId;
+            } else {
+                $reactions['rsvp'] = array_values(array_filter($reactions['rsvp'], static fn(int $id): bool => $id !== $userId));
+            }
+            social_write_json_atomic(social_reactions_file($postId), $reactions, false);
+            $fresh['rsvp_count'] = count($reactions['rsvp']);
+            $fresh = social_normalize_post($fresh);
+            social_write_json_atomic(social_post_file($postId), $fresh, false);
+            social_index_upsert_locked(social_post_summary($fresh));
+            if (!$active && (int)$fresh['user_id'] > 0 && (int)$fresh['user_id'] !== $userId) {
+                $profile = social_get_profile($userId, $user);
+                $name = (string)($profile['display_name'] ?? $user['username'] ?? 'Bir oyuncu');
+                social_notify_locked((int)$fresh['user_id'], $userId, 'event_rsvp', $postId, 0, $name . ' etkinliğine katılıyor: “' . (string)$fresh['title'] . '”', 'gonderi.php?id=' . $postId . '#etkinlik');
+            }
+            return [
+                'errors' => [],
+                'active' => !$active,
+                'count' => count($reactions['rsvp']),
+                'capacity' => $capacity,
+                'event_at' => (int)(($fresh['meta'] ?? [])['event_at'] ?? 0),
+            ];
+        });
+    }
+
     function social_post_states(array $postIds, ?array $viewer): array
     {
         $states = [];
         $saved = $viewer ? array_fill_keys(social_saved_ids((int)$viewer['id']), true) : [];
         foreach ($postIds as $id) {
             $id = (int)$id;
-            $gg = $viewer ? in_array((int)$viewer['id'], social_reactions($id)['gg'], true) : false;
-            $states[$id] = ['gg' => $gg, 'saved' => isset($saved[$id])];
+            $reactions = $viewer ? social_reactions($id) : ['gg' => [], 'poll_votes' => [], 'rsvp' => []];
+            $viewerId = $viewer ? (int)$viewer['id'] : 0;
+            $states[$id] = [
+                'gg' => $viewer ? in_array($viewerId, $reactions['gg'], true) : false,
+                'saved' => isset($saved[$id]),
+                'poll_vote' => $viewer ? (string)($reactions['poll_votes'][(string)$viewerId] ?? '') : '',
+                'rsvp' => $viewer ? in_array($viewerId, $reactions['rsvp'], true) : false,
+            ];
         }
         return $states;
     }
@@ -2099,14 +2617,250 @@ if (!defined('DG_SOCIAL')) {
         return array_slice($counts, 0, $limit, true);
     }
 
+    function social_suggested_profiles(?array $viewer = null, int $limit = 4): array
+    {
+        social_ensure_storage();
+        $viewerId = $viewer ? (int)$viewer['id'] : -1;
+        $blocked = social_blocked_ids($viewer);
+        $following = $viewer ? social_follows($viewerId)['following'] : [];
+        $candidates = [];
+        foreach ((array)(social_users_index()['summaries'] ?? []) as $summary) {
+            if (!is_array($summary)) continue;
+            $id = (int)($summary['user_id'] ?? -1);
+            if ($id === $viewerId || in_array($id, $blocked, true) || in_array($id, $following, true)) continue;
+            $profile = social_get_profile($id);
+            if ($profile) $candidates[] = $profile;
+        }
+        usort($candidates, static function (array $a, array $b): int {
+            $official = (int)!empty($b['is_official']) <=> (int)!empty($a['is_official']);
+            if ($official !== 0) return $official;
+            return [
+                (int)($b['trust_level'] ?? 0),
+                (int)($b['follower_count'] ?? 0),
+                (int)($b['post_count'] ?? 0),
+                (int)($b['comment_count'] ?? 0),
+            ] <=> [
+                (int)($a['trust_level'] ?? 0),
+                (int)($a['follower_count'] ?? 0),
+                (int)($a['post_count'] ?? 0),
+                (int)($a['comment_count'] ?? 0),
+            ];
+        });
+        return array_slice($candidates, 0, max(1, $limit));
+    }
+
+    function social_onboarding_status(array $user, ?array $profile = null): array
+    {
+        $userId = (int)($user['id'] ?? 0);
+        if ($userId <= 0) {
+            return ['steps' => [], 'completed' => 0, 'total' => 0, 'percent' => 0, 'complete' => true, 'should_show' => false];
+        }
+        $profile = $profile ?: social_ensure_profile($user);
+        $profileComplete = trim((string)($profile['bio'] ?? '')) !== ''
+            && (!empty($profile['platforms']) || !empty($profile['favorite_games']));
+        $followsOfficial = in_array(0, social_follows($userId)['following'], true);
+        $ownPosts = social_list_posts(['author_id' => $userId, 'per_page' => 1, 'sort' => 'new'], $user);
+        $hasPost = (int)($ownPosts['total'] ?? 0) > 0;
+        $hasComment = !empty(social_user_comments($userId, $user, 1));
+        $steps = [
+            [
+                'key' => 'profile',
+                'label' => 'Profilini tamamla',
+                'description' => 'Kısa bir biyografi ile platform veya favori oyunlarını ekle.',
+                'complete' => $profileComplete,
+                'url' => 'profil.php?kullanici=' . rawurlencode((string)$profile['username']) . '#profil-duzenle',
+                'action' => 'Profili düzenle',
+            ],
+            [
+                'key' => 'official',
+                'label' => 'DeviceGame’i takip et',
+                'description' => 'Duyurular ve topluluk etkinliklerini kaçırma.',
+                'complete' => $followsOfficial,
+                'url' => 'profil.php?kullanici=devicegame',
+                'action' => 'Resmî hesabı aç',
+            ],
+            [
+                'key' => 'intro',
+                'label' => 'Kendini tanıt',
+                'description' => 'Hangi platformda, son zamanlarda hangi oyunu oynuyorsun?',
+                'complete' => $hasPost,
+                'url' => 'yeni.php?konu=genel-sohbet&sablon=tanisma',
+                'action' => 'Tanışma gönderisi',
+            ],
+            [
+                'key' => 'comment',
+                'label' => 'İlk yorumunu yap',
+                'description' => 'Bir tartışmaya katılıp toplulukla tanış.',
+                'complete' => $hasComment,
+                'url' => 'index.php#akis',
+                'action' => 'Akışa git',
+            ],
+        ];
+        $completed = count(array_filter($steps, static fn(array $step): bool => !empty($step['complete'])));
+        $complete = $completed === count($steps);
+        $isRecent = (int)($profile['joined_at'] ?? time()) >= time() - (90 * 86400);
+        $lowActivity = ((int)($profile['approved_posts'] ?? 0) + (int)($profile['approved_comments'] ?? 0)) < 3;
+        return [
+            'steps' => $steps,
+            'completed' => $completed,
+            'total' => count($steps),
+            'percent' => count($steps) ? (int)round(($completed * 100) / count($steps)) : 100,
+            'complete' => $complete,
+            'should_show' => !$complete && empty($user['is_admin']) && ($isRecent || $lowActivity),
+        ];
+    }
+
+    function social_events(?array $viewer = null, int $limit = 100): array
+    {
+        $items = [];
+        $page = 1;
+        $pages = 1;
+        do {
+            $result = social_list_posts([
+                'topic' => 'etkinlikler',
+                'per_page' => 50,
+                'page' => $page,
+                'sort' => 'new',
+            ], $viewer);
+            foreach ((array)$result['items'] as $item) {
+                if (is_array($item) && social_is_event_post($item)) $items[] = $item;
+            }
+            $pages = (int)($result['pages'] ?? 1);
+            $page++;
+        } while (count($items) < $limit && $page <= $pages && $page <= 4);
+
+        $upcoming = [];
+        $past = [];
+        foreach ($items as $item) {
+            if (social_event_is_open($item)) $upcoming[] = $item;
+            else $past[] = $item;
+        }
+        usort($upcoming, static fn(array $a, array $b): int => [
+            (int)(($a['meta'] ?? [])['event_at'] ?? 0), (int)($a['id'] ?? 0),
+        ] <=> [
+            (int)(($b['meta'] ?? [])['event_at'] ?? 0), (int)($b['id'] ?? 0),
+        ]);
+        usort($past, static fn(array $a, array $b): int => [
+            (int)(($b['meta'] ?? [])['event_at'] ?? 0), (int)($b['id'] ?? 0),
+        ] <=> [
+            (int)(($a['meta'] ?? [])['event_at'] ?? 0), (int)($a['id'] ?? 0),
+        ]);
+        return [
+            'upcoming' => array_slice($upcoming, 0, max(1, $limit)),
+            'past' => array_slice($past, 0, max(1, $limit)),
+        ];
+    }
+
+    function social_upcoming_events(?array $viewer = null, int $limit = 3): array
+    {
+        return array_slice(social_events($viewer, max(10, $limit))['upcoming'], 0, max(1, $limit));
+    }
+
+    function social_weekly_highlights(?array $viewer = null, int $limit = 3): array
+    {
+        social_ensure_storage();
+        $blocked = social_blocked_ids($viewer);
+        $since = time() - (7 * 86400);
+        $items = [];
+        foreach (social_read_json(social_index_file('latest'), []) as $item) {
+            if (!is_array($item)) continue;
+            $item = social_post_summary($item);
+            if (!social_post_visible($item, $viewer, $blocked)) continue;
+            if ((int)$item['last_activity_at'] < $since && (int)$item['created_at'] < $since) continue;
+            $score = (int)$item['gg_count'] * 4
+                + (int)$item['comment_count'] * 3
+                + (int)(($item['poll'] ?? [])['total_votes'] ?? 0) * 2
+                + (int)$item['rsvp_count'] * 2
+                + (!empty($item['award']) ? 6 : 0);
+            if ($score <= 0) continue;
+            $item['_highlight_score'] = $score;
+            $items[] = $item;
+        }
+        usort($items, static fn(array $a, array $b): int => [
+            (int)($b['_highlight_score'] ?? 0), (int)($b['last_activity_at'] ?? 0), (int)($b['id'] ?? 0),
+        ] <=> [
+            (int)($a['_highlight_score'] ?? 0), (int)($a['last_activity_at'] ?? 0), (int)($a['id'] ?? 0),
+        ]);
+        $items = array_slice($items, 0, max(1, $limit));
+        foreach ($items as $i => $item) unset($items[$i]['_highlight_score']);
+        return array_values($items);
+    }
+
+    function social_sitemap_posts(int $limit = 5000): array
+    {
+        social_ensure_storage();
+        $byId = [];
+        $monthFiles = glob(social_dir('indexes') . '/month-*.json') ?: [];
+        rsort($monthFiles);
+        foreach ($monthFiles as $file) {
+            foreach (social_read_json($file, []) as $item) {
+                if (!is_array($item)) continue;
+                $summary = social_post_summary($item);
+                if (($summary['status'] ?? '') === 'published' && (int)$summary['id'] > 0) {
+                    $byId[(int)$summary['id']] = $summary;
+                }
+            }
+        }
+        if (!$byId) {
+            foreach (social_read_json(social_index_file('latest'), []) as $item) {
+                if (!is_array($item)) continue;
+                $summary = social_post_summary($item);
+                if (($summary['status'] ?? '') === 'published' && (int)$summary['id'] > 0) {
+                    $byId[(int)$summary['id']] = $summary;
+                }
+            }
+        }
+        $items = array_values($byId);
+        usort($items, static fn(array $a, array $b): int => [
+            max((int)$b['updated_at'], (int)$b['last_activity_at']), (int)$b['id'],
+        ] <=> [
+            max((int)$a['updated_at'], (int)$a['last_activity_at']), (int)$a['id'],
+        ]);
+        return array_slice($items, 0, max(1, $limit));
+    }
+
+    function social_sitemap_profiles(int $limit = 5000): array
+    {
+        social_ensure_storage();
+        $profiles = [];
+        foreach ((array)(social_users_index()['summaries'] ?? []) as $summary) {
+            if (!is_array($summary)) continue;
+            $id = (int)($summary['user_id'] ?? -1);
+            if ($id < 0) continue;
+            $profile = social_get_profile($id);
+            if (!$profile) continue;
+            $hasContent = !empty($profile['is_official'])
+                || (int)($profile['post_count'] ?? 0) > 0
+                || (int)($profile['comment_count'] ?? 0) > 0
+                || trim((string)($profile['bio'] ?? '')) !== '';
+            if ($hasContent) $profiles[] = $profile;
+        }
+        usort($profiles, static fn(array $a, array $b): int => [
+            (int)($b['updated_at'] ?? 0), (int)($b['post_count'] ?? 0), (int)($b['user_id'] ?? 0),
+        ] <=> [
+            (int)($a['updated_at'] ?? 0), (int)($a['post_count'] ?? 0), (int)($a['user_id'] ?? 0),
+        ]);
+        return array_slice($profiles, 0, max(1, $limit));
+    }
+
     function social_stats(bool $admin = false): array
     {
         social_ensure_storage();
         $latest = social_read_json(social_index_file('latest'), []);
         $published = $pending = $hidden = 0;
+        $polls = $upcomingEvents = $awards = $awardDcoin = 0;
         foreach ($latest as $item) {
             if (!is_array($item)) continue;
-            if (($item['status'] ?? '') === 'published') $published++;
+            if (($item['status'] ?? '') === 'published') {
+                $published++;
+                $summary = social_post_summary($item);
+                if (!empty($summary['poll'])) $polls++;
+                if (social_event_is_open($summary)) $upcomingEvents++;
+                if (!empty($summary['award'])) {
+                    $awards++;
+                    $awardDcoin += (int)$summary['award']['amount'];
+                }
+            }
             if (($item['status'] ?? '') === 'pending') $pending++;
             if (($item['status'] ?? '') === 'hidden') $hidden++;
         }
@@ -2137,6 +2891,10 @@ if (!defined('DG_SOCIAL')) {
             'hidden_posts' => $hidden,
             'pending_comments' => 0,
             'open_reports' => 0,
+            'polls' => $polls,
+            'upcoming_events' => $upcomingEvents,
+            'awards' => $awards,
+            'award_dcoin' => $awardDcoin,
         ];
         if ($admin) {
             foreach (social_moderation_comments(1000) as $comment) if (($comment['status'] ?? '') === 'pending') $stats['pending_comments']++;
@@ -2180,7 +2938,10 @@ if (!defined('DG_SOCIAL')) {
                     }
                 }
                 $post['comment_count'] = $commentCount;
-                $post['gg_count'] = count(social_reactions((int)$post['id'])['gg']);
+                $reactions = social_reactions((int)$post['id']);
+                $post['gg_count'] = count($reactions['gg']);
+                if (!empty($post['poll'])) $post['poll'] = social_poll_with_counts((array)$post['poll'], $reactions);
+                $post['rsvp_count'] = social_is_event_post($post) ? count($reactions['rsvp']) : 0;
                 if ($commentCount > 0) $post['last_activity_at'] = max((int)$post['last_activity_at'], $latestComment);
                 $post = social_normalize_post($post);
                 social_write_json_atomic($file, $post, false);
@@ -2255,6 +3016,157 @@ if (!defined('DG_SOCIAL')) {
         return ['files' => $files, 'bytes' => $bytes];
     }
 
+    function social_directory_stats(string $dir): array
+    {
+        $files = 0;
+        $bytes = 0;
+        $latestMtime = 0;
+        if (is_dir($dir)) {
+            $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS));
+            foreach ($iterator as $file) {
+                if (!$file->isFile()) continue;
+                $files++;
+                $bytes += (int)$file->getSize();
+                $latestMtime = max($latestMtime, (int)$file->getMTime());
+            }
+        }
+        return ['files' => $files, 'bytes' => $bytes, 'latest_mtime' => $latestMtime];
+    }
+
+    function social_health_report(): array
+    {
+        social_ensure_storage();
+        $checks = [];
+        $addCheck = static function (string $label, bool $ok, string $detail, string $level = 'error') use (&$checks): void {
+            $checks[] = ['label' => $label, 'ok' => $ok, 'detail' => $detail, 'level' => $ok ? 'ok' : $level];
+        };
+
+        $storageDir = social_storage_dir();
+        $uploadDir = social_upload_dir();
+        $addCheck('Sosyal veri klasörü', is_dir($storageDir) && is_writable($storageDir), is_dir($storageDir) ? (is_writable($storageDir) ? 'storage/social yazılabilir.' : 'storage/social yazılamıyor.') : 'storage/social bulunamıyor.');
+        $addCheck('Görsel klasörü', is_dir($uploadDir) && is_writable($uploadDir), is_dir($uploadDir) ? (is_writable($uploadDir) ? 'uploads/social yazılabilir.' : 'uploads/social yazılamıyor.') : 'uploads/social bulunamıyor.');
+        $lockFile = social_lock_file();
+        $addCheck('Veri kilidi', is_file($lockFile) ? is_writable($lockFile) : is_writable($storageDir), is_file($lockFile) ? 'social.lock mevcut.' : 'Kilit ilk yazmada oluşur.');
+
+        $meta = [];
+        try {
+            $meta = social_meta_locked();
+            $addCheck('Meta dosyası', true, 'meta.json okunabiliyor.');
+        } catch (Throwable $exception) {
+            $addCheck('Meta dosyası', false, $exception->getMessage());
+        }
+
+        $topicCount = 0;
+        try {
+            $topicCount = count(social_topics(false));
+            $addCheck('Konu listesi', $topicCount > 0, $topicCount . ' konu tanımlı.');
+        } catch (Throwable $exception) {
+            $addCheck('Konu listesi', false, $exception->getMessage());
+        }
+
+        $indexEntries = 0;
+        try {
+            $indexEntries = count(social_read_json(social_index_file('latest'), []));
+            $addCheck('Akış indeksi', true, $indexEntries . ' özet kaydı var.');
+        } catch (Throwable $exception) {
+            $addCheck('Akış indeksi', false, $exception->getMessage());
+        }
+
+        $postFiles = glob(social_dir('posts') . '/*/*.json') ?: [];
+        $invalidPosts = 0;
+        $referencedImages = [];
+        foreach ($postFiles as $file) {
+            $raw = @file_get_contents($file);
+            $decoded = $raw === false ? null : json_decode($raw, true);
+            if (!is_array($decoded)) {
+                $invalidPosts++;
+                continue;
+            }
+            $post = social_normalize_post($decoded);
+            if (($post['status'] ?? '') !== 'deleted' && trim((string)$post['image']) !== '') {
+                $referencedImages[ltrim(str_replace('\\', '/', (string)$post['image']), '/')] = true;
+            }
+        }
+        $addCheck('Gönderi JSON bütünlüğü', $invalidPosts === 0, count($postFiles) . ' gönderi dosyası, ' . $invalidPosts . ' bozuk kayıt.');
+
+        $uploadFiles = [];
+        $orphanImages = 0;
+        $orphanBytes = 0;
+        if (is_dir($uploadDir)) {
+            $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($uploadDir, FilesystemIterator::SKIP_DOTS));
+            foreach ($iterator as $file) {
+                if (!$file->isFile() || $file->getFilename() === 'index.html') continue;
+                $relative = 'uploads/social/' . str_replace('\\', '/', substr($file->getPathname(), strlen($uploadDir) + 1));
+                $uploadFiles[$relative] = (int)$file->getSize();
+                if (!isset($referencedImages[$relative])) {
+                    $orphanImages++;
+                    $orphanBytes += (int)$file->getSize();
+                }
+            }
+        }
+        $missingImages = 0;
+        foreach (array_keys($referencedImages) as $relative) {
+            if (!isset($uploadFiles[$relative]) && !is_file(social_base_dir() . '/' . $relative)) $missingImages++;
+        }
+        $addCheck('Görsel başvuruları', $missingImages === 0, $missingImages . ' eksik, ' . $orphanImages . ' sahipsiz görsel.', $missingImages > 0 ? 'error' : 'warning');
+
+        $freeBytes = @disk_free_space($storageDir);
+        $freeBytes = $freeBytes === false ? 0 : (int)$freeBytes;
+        $addCheck('Boş disk', $freeBytes === 0 || $freeBytes > 10 * 1024 * 1024, $freeBytes > 0 ? number_format($freeBytes / 1048576, 1, ',', '.') . ' MB boş alan.' : 'Boş alan okunamadı.', 'warning');
+
+        $lastBackupAt = (int)($meta['last_backup_at'] ?? 0);
+        $backupAgeDays = $lastBackupAt > 0 ? (int)floor((time() - $lastBackupAt) / 86400) : null;
+        $addCheck(
+            'Yedek işareti',
+            $lastBackupAt > 0 && $backupAgeDays !== null && $backupAgeDays <= 7,
+            $lastBackupAt > 0 ? 'Son işaret: ' . date('d.m.Y H:i', $lastBackupAt) . ' (' . $backupAgeDays . ' gün önce).' : 'Henüz yedek alındığı işaretlenmemiş.',
+            'warning'
+        );
+
+        $breakdown = [];
+        foreach (['profiles', 'posts', 'comments', 'reactions', 'follows', 'saves', 'notifications', 'reports', 'indexes', 'ratelimits'] as $name) {
+            $breakdown['storage/social/' . $name] = social_directory_stats(social_dir($name));
+        }
+        $breakdown['uploads/social'] = social_directory_stats($uploadDir);
+
+        $healthy = true;
+        foreach ($checks as $check) {
+            if (!$check['ok'] && $check['level'] === 'error') $healthy = false;
+        }
+        return [
+            'healthy' => $healthy,
+            'checks' => $checks,
+            'breakdown' => $breakdown,
+            'totals' => social_storage_stats(),
+            'topics' => $topicCount,
+            'post_files' => count($postFiles),
+            'invalid_posts' => $invalidPosts,
+            'index_entries' => $indexEntries,
+            'missing_images' => $missingImages,
+            'orphan_images' => $orphanImages,
+            'orphan_bytes' => $orphanBytes,
+            'free_bytes' => $freeBytes,
+            'last_backup_at' => $lastBackupAt,
+            'last_backup_by' => (int)($meta['last_backup_by'] ?? 0),
+            'meta_updated_at' => (int)($meta['updated_at'] ?? 0),
+            'latest_index_mtime' => is_file(social_index_file('latest')) ? (int)@filemtime(social_index_file('latest')) : 0,
+        ];
+    }
+
+    function social_mark_backup(array $admin): array
+    {
+        if (empty($admin['is_admin'])) return ['errors' => ['Bu işlem için yönetici yetkisi gerekir.']];
+        social_ensure_storage();
+        return social_with_lock(static function () use ($admin): array {
+            $meta = social_meta_locked();
+            $meta['last_backup_at'] = time();
+            $meta['last_backup_by'] = (int)$admin['id'];
+            $meta['updated_at'] = time();
+            social_write_json_atomic(social_meta_file(), $meta);
+            return ['errors' => [], 'last_backup_at' => (int)$meta['last_backup_at']];
+        });
+    }
+
     function social_render_text(string $text): string
     {
         $escaped = htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
@@ -2286,7 +3198,7 @@ if (!defined('DG_SOCIAL')) {
                 }
                 if (($m[3] ?? '') !== '') {
                     $tag = social_slugify((string)$m[3]);
-                    return '<a href="index.php?q=' . rawurlencode('#' . $tag) . '">#' . htmlspecialchars($tag, ENT_QUOTES, 'UTF-8') . '</a>';
+                    return '<a href="index.php?q=' . rawurlencode('#' . $tag) . '#akis">#' . htmlspecialchars($tag, ENT_QUOTES, 'UTF-8') . '</a>';
                 }
                 return $m[0];
             },

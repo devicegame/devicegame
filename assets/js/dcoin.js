@@ -213,7 +213,13 @@
         }
         if (modalWhatsappNote) modalWhatsappNote.hidden = !whatsappUrl;
         if (whatsappOrderShare) {
-            whatsappOrderShare.href = whatsappUrl || '#';
+            if (whatsappUrl) {
+                whatsappOrderShare.href = whatsappUrl;
+                whatsappOrderShare.removeAttribute('aria-disabled');
+            } else {
+                whatsappOrderShare.removeAttribute('href');
+                whatsappOrderShare.setAttribute('aria-disabled', 'true');
+            }
             whatsappOrderShare.hidden = !whatsappUrl;
         }
 
@@ -501,7 +507,7 @@
         setStatus('Tamamlandı. Ödül doğrulanıyor...');
 
         if (!config.isLogged) {
-            showResult('<div><b>Videoyu tamamladın.</b><p>D-Coin kazanmak için <a href="login.php?next=index.php">giriş yap</a>.</p></div>', false);
+            showResult('<div><b>Videoyu tamamladın.</b><p>D-Coin kazanmak için <a href="login.php?next=' + encodeURIComponent(config.loginNext || 'index.php#dcoin') + '">giriş yap</a>.</p></div>', false);
             return;
         }
         if (hasRewarded || !watchToken) return;

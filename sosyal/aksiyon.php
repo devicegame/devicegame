@@ -7,7 +7,7 @@ function social_safe_return(string $return, string $fallback = 'index.php'): str
     if ($return === '' || preg_match('~^(?:https?:)?//~i', $return) || str_contains($return, '\\')) {
         return $fallback;
     }
-    $pattern = '~^(?:\.\./admin/social\.php|(?:index|gonderi|profil|bildirimler|yeni)\.php)(?:\?[^#\s]*)?(?:#[A-Za-z0-9_-]+)?$~';
+    $pattern = '~^(?:\.\./admin/social\.php|(?:index|gonderi|profil|bildirimler|yeni|etkinlikler|kurallar)\.php)(?:\?[^#\s]*)?(?:#[A-Za-z0-9_-]+)?$~';
     return preg_match($pattern, $return) ? $return : $fallback;
 }
 
@@ -84,6 +84,29 @@ try {
             $result = social_toggle_save($socialUser, $postId);
             social_action_finish($result, !empty($result['active']) ? 'Gönderi kaydedildi.' : 'Kayıt kaldırıldı.', $return, $ajax, [
                 'active' => !empty($result['active']),
+            ]);
+
+        case 'anket_oy':
+            $result = social_vote_poll($socialUser, $postId, (string)($_POST['option_id'] ?? ''));
+            social_action_finish($result, 'Oyun kaydedildi.', $return, $ajax, [
+                'poll' => $result['poll'] ?? null,
+                'selected' => (string)($result['selected'] ?? (($result['poll'] ?? [])['selected'] ?? '')),
+            ]);
+
+        case 'etkinlik_katil':
+            $result = social_toggle_event_rsvp($socialUser, $postId);
+            social_action_finish($result, !empty($result['active']) ? 'Etkinliğe katıldın.' : 'Etkinlik katılımın kaldırıldı.', $return, $ajax, [
+                'active' => !empty($result['active']),
+                'count' => (int)($result['count'] ?? 0),
+                'capacity' => (int)($result['capacity'] ?? 0),
+                'event_at' => (int)($result['event_at'] ?? 0),
+            ]);
+
+        case 'odul_ver':
+            $result = social_award_post($socialUser, $postId, (int)($_POST['amount'] ?? 0), (string)($_POST['reason'] ?? ''));
+            social_action_finish($result, 'Editör Ödülü verildi ve D-Coin gönderi sahibine eklendi.', $return, $ajax, [
+                'award' => $result['award'] ?? null,
+                'balance' => (int)($result['balance'] ?? 0),
             ]);
 
         case 'takip':

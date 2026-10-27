@@ -13,6 +13,50 @@ $full_title = isset($page_title) && $page_title !== ''
     : $company_name . ' | ' . $slogan;
 
 $page_meta_desc = $page_meta_desc ?? $meta_desc;
+
+// Sayfa bazlı canonical / Open Graph / Twitter bilgileri. Sayfalar uygulama
+// köküne göreli yol verebilir: $page_canonical = 'sosyal/gonderi.php?id=1';
+$script_parts = array_values(array_filter(explode('/', trim(str_replace('\\', '/', (string)($_SERVER['SCRIPT_NAME'] ?? 'index.php')), '/')), static fn($part): bool => $part !== ''));
+$default_canonical_path = '';
+if ($root === '../' && count($script_parts) >= 2) {
+    $candidate = implode('/', array_slice($script_parts, -2));
+    $default_canonical_path = $candidate === 'index.php' ? '' : $candidate;
+} elseif ($script_parts) {
+    $candidate = (string)end($script_parts);
+    $default_canonical_path = $candidate === 'index.php' ? '' : $candidate;
+}
+$canonical_url = '';
+if (!isset($page_canonical) || $page_canonical !== false) {
+    $canonical_path = isset($page_canonical) && is_string($page_canonical) ? $page_canonical : $default_canonical_path;
+    if (str_starts_with($canonical_path, '../')) $canonical_path = substr($canonical_path, 3);
+    $canonical_url = function_exists('dg_absolute_url') ? dg_absolute_url($canonical_path) : $canonical_path;
+}
+$page_robots = isset($page_robots) && is_string($page_robots) ? trim($page_robots) : '';
+$page_og_type = isset($page_og_type) && is_string($page_og_type) && $page_og_type !== '' ? $page_og_type : 'website';
+$page_og_title = isset($page_og_title) && is_string($page_og_title) && $page_og_title !== '' ? $page_og_title : $full_title;
+$page_og_desc = isset($page_og_desc) && is_string($page_og_desc) && $page_og_desc !== '' ? $page_og_desc : $page_meta_desc;
+$page_og_image_value = array_key_exists('page_og_image', get_defined_vars()) ? $page_og_image : 'assets/img/devicegame-og.png';
+$page_og_image_url = '';
+if (is_string($page_og_image_value) && trim($page_og_image_value) !== '') {
+    $image_path = trim($page_og_image_value);
+    if (str_starts_with($image_path, '../')) $image_path = substr($image_path, 3);
+    $page_og_image_url = function_exists('dg_absolute_url') ? dg_absolute_url($image_path) : $image_path;
+}
+$page_og_image_alt = isset($page_og_image_alt) && is_string($page_og_image_alt) && $page_og_image_alt !== ''
+    ? $page_og_image_alt
+    : 'Device Game — Oyun dünyasının anahtarı.';
+$page_twitter_card = isset($page_twitter_card) && is_string($page_twitter_card) && $page_twitter_card !== ''
+    ? $page_twitter_card
+    : ($page_og_image_url !== '' ? 'summary_large_image' : 'summary');
+$meta_time = static function ($value): string {
+    if ($value === null || $value === '') return '';
+    if (is_numeric($value)) return date(DATE_ATOM, (int)$value);
+    $timestamp = strtotime((string)$value);
+    return $timestamp ? date(DATE_ATOM, $timestamp) : (string)$value;
+};
+$page_published_time = $meta_time($page_published_time ?? null);
+$page_modified_time = $meta_time($page_modified_time ?? null);
+
 $cart_total_count = function_exists('cart_count') ? cart_count() : 0;
 
 // D-Coin hesabı eski menünün içinde gösterilir. db.php yüklenmeden açılan
@@ -36,10 +80,34 @@ function nav_link($file, $label, $current, $root = '') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo e($full_title); ?></title>
     <meta name="description" content="<?php echo e($page_meta_desc); ?>">
+    <?php if ($page_robots !== ''): ?><meta name="robots" content="<?php echo e($page_robots); ?>"><?php endif; ?>
+    <?php if ($canonical_url !== ''): ?><link rel="canonical" href="<?php echo e($canonical_url); ?>"><?php endif; ?>
     <meta name="theme-color" content="#0A1A15">
-    <meta property="og:type" content="website">
-    <meta property="og:title" content="<?php echo e($full_title); ?>">
-    <meta property="og:description" content="<?php echo e($page_meta_desc); ?>">
+    <meta property="og:site_name" content="<?php echo e($company_name); ?>">
+    <meta property="og:locale" content="tr_TR">
+    <meta property="og:type" content="<?php echo e($page_og_type); ?>">
+    <?php if ($canonical_url !== ''): ?><meta property="og:url" content="<?php echo e($canonical_url); ?>"><?php endif; ?>
+    <meta property="og:title" content="<?php echo e($page_og_title); ?>">
+    <meta property="og:description" content="<?php echo e($page_og_desc); ?>">
+    <?php if ($page_og_image_url !== ''): ?>
+        <meta property="og:image" content="<?php echo e($page_og_image_url); ?>">
+        <meta property="og:image:alt" content="<?php echo e($page_og_image_alt); ?>">
+    <?php endif; ?>
+    <meta name="twitter:card" content="<?php echo e($page_twitter_card); ?>">
+    <meta name="twitter:title" content="<?php echo e($page_og_title); ?>">
+    <meta name="twitter:description" content="<?php echo e($page_og_desc); ?>">
+    <?php if ($page_og_image_url !== ''): ?>
+        <meta name="twitter:image" content="<?php echo e($page_og_image_url); ?>">
+        <meta name="twitter:image:alt" content="<?php echo e($page_og_image_alt); ?>">
+    <?php endif; ?>
+    <?php if ($page_og_type === 'article'): ?>
+        <?php if ($page_published_time !== ''): ?><meta property="article:published_time" content="<?php echo e($page_published_time); ?>"><?php endif; ?>
+        <?php if ($page_modified_time !== ''): ?><meta property="article:modified_time" content="<?php echo e($page_modified_time); ?>"><?php endif; ?>
+        <?php if (!empty($page_article_author)): ?><meta property="article:author" content="<?php echo e($page_article_author); ?>"><?php endif; ?>
+        <?php if (!empty($page_article_section)): ?><meta property="article:section" content="<?php echo e($page_article_section); ?>"><?php endif; ?>
+        <?php foreach ((array)($page_article_tags ?? []) as $article_tag): ?><meta property="article:tag" content="<?php echo e($article_tag); ?>"><?php endforeach; ?>
+    <?php endif; ?>
+    <script src="<?php echo e($root); ?>assets/js/scroll-restore.js" defer></script>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230A1A15'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%234FE0A0'/%3E%3C/svg%3E">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

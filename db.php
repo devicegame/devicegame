@@ -464,6 +464,27 @@ function dg_update_user(int $id, array $fields): bool {
     });
 }
 
+/** D-Coin bakiyesini çekirdek kilidi altında güvenle artırır/azaltır. */
+function dg_adjust_user_balance(int $id, int $amount): array {
+    if ($id <= 0 || $amount === 0) {
+        return ['ok' => false, 'error' => 'Geçersiz bakiye işlemi.', 'balance' => 0];
+    }
+    return dg_mutate(function (array &$data) use ($id, $amount): array {
+        $i = dg_index_of_id($data['users'], $id);
+        if ($i === null) return ['ok' => false, 'error' => 'Kullanıcı bulunamadı.', 'balance' => 0];
+        $balance = (int)($data['users'][$i]['dcoin_balance'] ?? 0);
+        if ($balance + $amount < 0) {
+            return ['ok' => false, 'error' => 'Bakiye yetersiz.', 'balance' => $balance];
+        }
+        $data['users'][$i]['dcoin_balance'] = $balance + $amount;
+        $data['users'][$i]['updated_at'] = dg_now();
+        if (isset($_SESSION['user_id']) && (int)$_SESSION['user_id'] === $id) {
+            $_SESSION['dcoin_balance'] = $balance + $amount;
+        }
+        return ['ok' => true, 'error' => '', 'balance' => $balance + $amount];
+    });
+}
+
 /** Güncel kullanıcıyı veri dosyasından çeker (bakiye güncel olsun). */
 function current_user(): ?array {
     if (!is_logged_in()) return null;

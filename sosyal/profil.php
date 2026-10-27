@@ -21,7 +21,7 @@ if ($profile && $socialUser && (int)$socialUser['id'] === (int)$profile['user_id
             $profileErrors = $result['errors'];
         } else {
             flash_set('Sosyal profilin güncellendi.');
-            header('Location: ' . social_profile_url($result['profile']));
+            header('Location: ' . social_profile_url($result['profile']) . '#profil-duzenle');
             exit;
         }
     }
@@ -31,6 +31,8 @@ if (!$profile) {
     http_response_code(404);
     $page_title = 'Kullanıcı bulunamadı — DG Social';
     $page_meta_desc = 'Aradığın DG Social kullanıcısı bulunamadı.';
+    $page_canonical = false;
+    $page_robots = 'noindex,nofollow';
     $page_css = ['shop.css', 'social.css'];
     $body_class = 'shop-page social-page';
     include __DIR__ . '/../header.php';
@@ -66,6 +68,7 @@ $result = $canViewContent
 $posts = $result['items'];
 $socialStates = social_post_states(array_map(static fn(array $post): int => (int)$post['id'], $posts), $socialUser);
 $recentComments = $canViewContent ? social_user_comments($profileId, $socialUser, 8) : [];
+$awardStats = $canViewContent ? social_user_award_stats($profileId) : ['count' => 0, 'total' => 0];
 $followers = $canViewContent ? social_profiles_by_ids(array_slice($targetFollows['followers'], 0, 12)) : [];
 $following = $canViewContent ? social_profiles_by_ids(array_slice($targetFollows['following'], 0, 12)) : [];
 $returnUrl = 'profil.php?kullanici=' . rawurlencode((string)$profile['username']);
@@ -81,6 +84,12 @@ if ($profileForm === null) {
 
 $page_title = $profile['display_name'] . ' (@' . $profile['username'] . ') — DG Social';
 $page_meta_desc = trim((string)$profile['bio']) !== '' ? social_excerpt((string)$profile['bio'], 155) : $profile['display_name'] . ' kullanıcısının DeviceGame sosyal profili.';
+$profileHasContent = $profileId === 0 || (int)$profile['post_count'] > 0 || (int)$profile['comment_count'] > 0 || trim((string)$profile['bio']) !== '';
+$page_canonical = $profileHasContent ? 'sosyal/' . social_profile_url($profile) : false;
+$page_robots = $profileHasContent ? '' : 'noindex,follow';
+$page_og_type = 'profile';
+$page_og_title = $profile['display_name'] . ' (@' . $profile['username'] . ')';
+$page_og_desc = $page_meta_desc;
 $page_css = ['shop.css', 'social.css'];
 $body_class = 'shop-page social-page';
 include __DIR__ . '/../header.php';
@@ -97,9 +106,10 @@ include __DIR__ . '/../header.php';
                 <p class="eyebrow">DG Social Profili</p>
                 <h1><?= e($profile['display_name']) ?></h1>
                 <p class="social-username">@<?= e($profile['username']) ?> · Katılım: <?= e(date('d.m.Y', (int)$profile['joined_at'])) ?></p>
-                <?php if ($badges): ?>
+                <?php if ($badges || (int)$awardStats['count'] > 0): ?>
                     <div class="social-badges">
                         <?php foreach ($badges as $badge): ?><span><?= e($badge) ?></span><?php endforeach; ?>
+                        <?php if ((int)$awardStats['count'] > 0): ?><span>🏆 <?= (int)$awardStats['count'] ?> Editör Ödülü</span><?php endif; ?>
                     </div>
                 <?php endif; ?>
             </div>
@@ -139,6 +149,10 @@ include __DIR__ . '/../header.php';
         </div>
     </header>
 
+    <?php if ($isOwn && $socialUser && $socialProfile): ?>
+        <?= social_onboarding_html($socialUser, $socialProfile, (string)($_GET['hosgeldin'] ?? '') === '1') ?>
+    <?php endif; ?>
+
     <?php if ($blockedByTarget && !$isAdmin): ?>
         <div class="social-empty">
             <h2>Bu profil sana uygun değil.</h2>
@@ -161,6 +175,9 @@ include __DIR__ . '/../header.php';
                         <div><dt>Yorum</dt><dd><?= (int)$profile['comment_count'] ?></dd></div>
                         <div><dt>Takipçi</dt><dd><?= (int)$profile['follower_count'] ?></dd></div>
                         <div><dt>Takip</dt><dd><?= (int)$profile['following_count'] ?></dd></div>
+                        <?php if ((int)$awardStats['count'] > 0): ?>
+                            <div><dt>Editör ödülleri</dt><dd><?= (int)$awardStats['count'] ?> · +<?= number_format((int)$awardStats['total'], 0, ',', '.') ?> D-Coin</dd></div>
+                        <?php endif; ?>
                         <?php if ($profileUser && (!empty($profile['show_balance']) || $isOwn || $isAdmin)): ?>
                             <div><dt>D-Coin</dt><dd><?= number_format((int)$profileUser['dcoin_balance'], 0, ',', '.') ?></dd></div>
                         <?php endif; ?>
@@ -198,13 +215,13 @@ include __DIR__ . '/../header.php';
                 <?php endif; ?>
 
                 <?php if ($isAdmin && !$isOwn && $profileId > 0): ?>
-                    <section class="social-panel">
+                    <section class="social-panel" id="yonetici-araclari">
                         <h2>Yönetici araçları</h2>
                         <form method="post" action="aksiyon.php" class="social-inline-form">
                             <?= csrf_field() ?>
                             <input type="hidden" name="islem" value="guven">
                             <input type="hidden" name="target_id" value="<?= $profileId ?>">
-                            <input type="hidden" name="return" value="<?= e($returnUrl) ?>">
+                            <input type="hidden" name="return" value="<?= e($returnUrl . '#yonetici-araclari') ?>">
                             <label for="trust-level">Güven seviyesi</label>
                             <select id="trust-level" name="trust_level">
                                 <option value="0"<?= (int)$profile['trust_level'] === 0 ? ' selected' : '' ?>>0 — Yeni / onaylı</option>
@@ -253,7 +270,7 @@ include __DIR__ . '/../header.php';
                     </section>
                 <?php endif; ?>
 
-                <section>
+                <section id="profil-gonderileri">
                     <div class="social-section-title">
                         <h2>Gönderiler</h2>
                         <span><?= (int)$result['total'] ?> içerik</span>
@@ -264,7 +281,7 @@ include __DIR__ . '/../header.php';
                                 <?php include __DIR__ . '/_post-card.php'; ?>
                             <?php endforeach; ?>
                         </div>
-                        <?= social_pagination_html('profil.php', ['kullanici' => (string)$profile['username']], (int)$result['page'], (int)$result['pages']) ?>
+                        <?= social_pagination_html('profil.php', ['kullanici' => (string)$profile['username']], (int)$result['page'], (int)$result['pages'], 'profil-gonderileri') ?>
                     <?php else: ?>
                         <div class="social-empty is-small"><h3>Henüz gönderi yok.</h3><p>Bu kullanıcı henüz bir şey paylaşmamış.</p></div>
                     <?php endif; ?>

@@ -13,17 +13,59 @@ function dg_safe_back(string $back, string $fallback = 'login.php'): string {
 
 function dg_safe_next(string $next): string {
     $next = trim($next);
-    if ($next === '' || preg_match('#^(?:https?:)?//#i', $next)) return 'index.php';
-    // Yalnızca bu projedeki göreli sayfalara izin ver.
-    return preg_match('#^[a-zA-Z0-9_./?=&%-]+$#', $next) ? $next : 'index.php';
+    if (
+        $next === ''
+        || preg_match('#^(?:https?:)?//#i', $next)
+        || str_contains($next, '\\')
+        || preg_match('/[\x00-\x1F\x7F]/', $next)
+        || str_starts_with($next, '/')
+        || str_starts_with($next, '../')
+    ) {
+        return 'index.php';
+    }
+
+    $fragment = '';
+    if (str_contains($next, '#')) {
+        [$next, $fragment] = explode('#', $next, 2);
+        if (!preg_match('/^[A-Za-z0-9_-]+$/', $fragment)) return 'index.php';
+    }
+
+    $path = $next;
+    $query = '';
+    if (str_contains($next, '?')) {
+        [$path, $query] = explode('?', $next, 2);
+        if (!preg_match('/^[A-Za-z0-9_=&%+.,@:-]*$/', $query)) return 'index.php';
+    }
+
+    $allowedRootPages = [
+        'index.php', 'shop.php', 'product.php', 'about.php', 'contact.php',
+        'cart.php', 'checkout.php', 'dcoin.php', 'earn.php', 'orders.php',
+    ];
+    $allowed = in_array($path, $allowedRootPages, true)
+        || in_array($path, ['blog/index.php', 'blog/yazi.php'], true)
+        || preg_match('#^sosyal/(?:index|gonderi|profil|bildirimler|yeni|etkinlikler|kurallar)\.php$#', $path)
+        || preg_match('#^admin/[a-z0-9_-]+\.php$#i', $path);
+    if (!$allowed) return 'index.php';
+
+    return $path
+        . ($query !== '' ? '?' . $query : '')
+        . ($fragment !== '' ? '#' . $fragment : '');
+}
+
+function dg_auth_back_url(string $action, string $next): string {
+    $page = $action === 'register' ? 'register.php' : 'login.php';
+    return $next !== 'index.php' ? $page . '?next=' . rawurlencode($next) : $page;
 }
 
 $action = (string)($_POST['action'] ?? $_GET['action'] ?? '');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $authNext = dg_safe_next((string)($_POST['next'] ?? $_GET['next'] ?? 'index.php'));
+    $backPage = dg_safe_back((string)($_POST['_back'] ?? ($action === 'register' ? 'register.php' : 'login.php')), $action === 'register' ? 'register.php' : 'login.php');
+    $backUrl = $backPage . ($authNext !== 'index.php' ? '?next=' . rawurlencode($authNext) : '');
     if (!csrf_verify((string)($_POST['csrf'] ?? ''))) {
         flash_error_set('Güvenlik doğrulaması başarısız. Sayfayı yenileyip tekrar deneyin.');
-        header('Location: ' . dg_safe_back((string)($_POST['_back'] ?? 'login.php'))); exit;
+        header('Location: ' . $backUrl); exit;
     }
 
     try {
@@ -35,14 +77,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $password2 = (string)($_POST['password2'] ?? '');
 
             $err = validate_username($username) ?? validate_email($email) ?? validate_password($password);
-            if ($err) { flash_error_set($err); header('Location: register.php'); exit; }
-            if ($password !== $password2) { flash_error_set('Şifreler uyuşmuyor.'); header('Location: register.php'); exit; }
+            if ($err) { flash_error_set($err); header('Location: ' . $backUrl); exit; }
+            if ($password !== $password2) { flash_error_set('Şifreler uyuşmuyor.'); header('Location: ' . $backUrl); exit; }
 
             $hash = password_hash($password, PASSWORD_BCRYPT, ['cost' => 10]);
             $result = dg_create_user($username, $email, $hash);
             if (empty($result['ok'])) {
                 flash_error_set((string)($result['error'] ?? 'Kayıt oluşturulamadı.'));
-                header('Location: register.php'); exit;
+                header('Location: ' . $backUrl); exit;
             }
 
             $user = $result['user'];
@@ -53,8 +95,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['email'] = $user['email'];
             $_SESSION['is_admin'] = 0;
             $_SESSION['dcoin_balance'] = 0;
-            flash_set('Hoş geldin, ' . $username . '! Hesabın oluşturuldu. D-Coin kazanmak için videoları izlemeye başlayabilirsin.');
-            header('Location: index.php'); exit;
+            flash_set('Hoş geldin, ' . $username . '! Hesabın oluşturuldu. DG Social başlangıç adımlarından topluluğa katılabilir, D-Coin için videoları izlemeye başlayabilirsin.');
+            header('Location: ' . ($authNext !== 'index.php' ? $authNext : 'sosyal/index.php?hosgeldin=1')); exit;
         }
 
         // ---------- GİRİŞ ----------
@@ -64,17 +106,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($login === '' || $password === '') {
                 flash_error_set('Tüm alanları doldurun.');
-                header('Location: login.php'); exit;
+                header('Location: ' . $backUrl); exit;
             }
 
             $user = dg_find_user_for_login($login);
             if (!$user || !password_verify($password, (string)($user['password_hash'] ?? ''))) {
                 flash_error_set('Kullanıcı adı/e-posta veya şifre hatalı.');
-                header('Location: login.php'); exit;
+                header('Location: ' . $backUrl); exit;
             }
             if ((int)($user['is_banned'] ?? 0) === 1) {
                 flash_error_set('Hesabınız engellenmiş. Destek ile iletişime geçin.');
-                header('Location: login.php'); exit;
+                header('Location: ' . $backUrl); exit;
             }
 
             if (password_needs_rehash((string)$user['password_hash'], PASSWORD_BCRYPT)) {
@@ -92,12 +134,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['dcoin_balance'] = (int)($user['dcoin_balance'] ?? 0);
 
             flash_set('Tekrar hoş geldin, ' . $user['username'] . '!');
-            header('Location: ' . dg_safe_next((string)($_POST['next'] ?? $_GET['next'] ?? 'index.php'))); exit;
+            header('Location: ' . $authNext); exit;
         }
     } catch (Throwable $e) {
         error_log('[auth] ' . $e->getMessage());
         flash_error_set('Depolama hatası nedeniyle işlem tamamlanamadı. diagnose.php ile kontrol edin.');
-        header('Location: ' . ($action === 'register' ? 'register.php' : 'login.php')); exit;
+        header('Location: ' . $backUrl); exit;
     }
 }
 
